@@ -1138,10 +1138,12 @@ class RVCService:
         """Retorna status atual do serviço."""
         return {
             "loaded": self.is_loaded,
+            "model": self.model,  # Required by voice_pipeline
             "model_loaded": self.model is not None,
             "index_loaded": self.index is not None,
             "device": self.device,
             "model_type": "RVC",
+            "mock_mode": self.model is None,  # Required by voice_pipeline
             "rvc_repo_dir": str(self._rvc_repo_dir) if self._rvc_repo_dir else None,
             "rvc_repo_loaded": self._rvc_repo_dir is not None,
             "rvc_env_name": self._rvc_env_name,

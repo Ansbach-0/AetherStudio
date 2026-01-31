@@ -5,7 +5,7 @@ Detecta o idioma de textos para uso no pipeline de TTS,
 permitindo seleção automática da voz correta.
 """
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from backend.utils.logger import get_logger
 
@@ -208,7 +208,7 @@ class LanguageDetector:
         ]
     
     @property
-    def status(self) -> Dict[str, any]:
+    def status(self) -> Dict[str, Any]:
         """Retorna status do detector."""
         return {
             "available": self.available,

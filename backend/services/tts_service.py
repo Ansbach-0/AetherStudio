@@ -366,7 +366,9 @@ class TTSService:
         """Retorna status do serviço."""
         return {
             "loaded": self.is_loaded,
+            "model": self.model,  # Required by voice_pipeline
             "model_available": self.model is not None,
+            "mock_mode": self.model is None,  # Required by voice_pipeline
             "torch_available": TORCH_AVAILABLE,
             "f5_tts_installed": F5_TTS_AVAILABLE,
             "device": self.device,

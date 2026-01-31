@@ -977,7 +977,7 @@ const VoiceEditor = ({ voice, onClose }) => {
 
 // --- MAIN AREA COMPONENT (DASHBOARD) ---
 const DashboardArea = ({ theme, onLogout }) => {
-  const { auth, voiceProfiles, credits, systemStatus, globalError, clearErrors } = useApi();
+  const { auth, voiceProfiles, credits, systemStatus, globalError, clearErrors, retryConnection } = useApi();
   const [activeTab, setActiveTab] = useState('library');
   const [selectedVoice, setSelectedVoice] = useState(null);
 

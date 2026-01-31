@@ -6,8 +6,8 @@ com validação de tipos e valores padrão seguros.
 """
 
 from functools import lru_cache
-from typing import List, Union
-from pydantic import field_validator
+from typing import Any, List, Union
+from pydantic import field_validator, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,6 +18,15 @@ def parse_comma_list(v: Union[str, List[str], None], default: List[str]) -> List
     if isinstance(v, list):
         return v
     if isinstance(v, str):
+        # Try JSON parsing first (for ["a", "b"] format)
+        try:
+            import json
+            parsed = json.loads(v)
+            if isinstance(parsed, list):
+                return parsed
+        except (json.JSONDecodeError, ValueError):
+            pass
+        # Fall back to comma-separated parsing
         return [item.strip() for item in v.split(",") if item.strip()]
     return default
 
@@ -52,7 +61,9 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
-        extra="ignore"
+        extra="ignore",
+        # Disable JSON parsing for environment variables - we handle it in validators
+        env_parse_none_str=None,
     )
     
     # Validadores para converter strings separadas por vírgula em listas
@@ -108,9 +119,9 @@ class Settings(BaseSettings):
     min_audio_duration: int = 3    # 3 segundos
     max_file_size_mb: int = 50     # 50 MB
     
-    # Formatos e idiomas suportados
-    allowed_audio_formats: List[str] = ["mp3", "wav", "flac", "ogg", "m4a"]
-    allowed_languages: List[str] = ["pt-BR", "en-US", "es-ES"]
+    # Formatos e idiomas suportados - use Any to bypass JSON parsing
+    allowed_audio_formats: Any = Field(default=["mp3", "wav", "flac", "ogg", "m4a"])
+    allowed_languages: Any = Field(default=["pt-BR", "en-US", "es-ES"])
     
     # Diretórios
     upload_dir: str = "./uploads"
@@ -132,8 +143,8 @@ class Settings(BaseSettings):
     cache_ttl_seconds: int = 3600
     max_concurrent_tasks: int = 3
     
-    # CORS
-    cors_origins: List[str] = ["http://localhost:5173", "http://localhost:3000"]
+    # CORS - use Any to bypass JSON parsing
+    cors_origins: Any = Field(default=["http://localhost:5173", "http://localhost:3000"])
     
     # Segurança
     secret_key: str = "change-me-in-production-use-strong-secret"
