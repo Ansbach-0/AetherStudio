@@ -51,6 +51,16 @@ class UserResponse(UserBase):
     created_at: datetime = Field(..., description="Data de criação da conta")
 
 
+class RegisterResponse(UserResponse):
+    """
+    Schema de resposta para registro de usuário.
+    
+    Inclui access_token para autenticação imediata após registro.
+    """
+    access_token: str = Field(..., description="Token de acesso para autenticação")
+    token_type: str = Field(default="bearer", description="Tipo do token")
+
+
 # =============================================================================
 # SCHEMAS DE CRÉDITOS
 # =============================================================================

@@ -21,6 +21,7 @@ from backend.models.schemas import (
     UsageStats,
     UserCreate,
     UserResponse,
+    RegisterResponse,
 )
 from backend.config import get_settings
 from backend.utils.exceptions import UserAlreadyExistsError, UserNotFoundError
@@ -174,27 +175,28 @@ async def get_current_user_credits(
 
 @router.post(
     "/register",
-    response_model=UserResponse,
+    response_model=RegisterResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Registrar novo usuário",
-    description="Cria uma nova conta de usuário com créditos iniciais."
+    description="Cria uma nova conta de usuário com créditos iniciais e retorna token de acesso."
 )
 async def register_user(
     user_data: UserCreate,
     db: AsyncSession = Depends(get_db)
-) -> UserResponse:
+) -> RegisterResponse:
     """
     Registra um novo usuário no sistema.
     
     Cria conta com créditos iniciais definidos na configuração.
     Registra uma transação de bônus inicial.
+    Retorna token de acesso para login automático.
     
     Args:
         user_data: Dados do novo usuário
         db: Sessão do banco de dados
     
     Returns:
-        UserResponse: Dados do usuário criado
+        RegisterResponse: Dados do usuário criado com access_token
     
     Raises:
         HTTPException: Se email já estiver cadastrado
@@ -226,9 +228,26 @@ async def register_user(
     )
     db.add(bonus_transaction)
     
+    # Criar token de acesso para login automático
+    access_token = create_access_token(new_user.id)
+    
     logger.info(f"Novo usuário registrado: {new_user.email} (ID: {new_user.id})")
     
-    return UserResponse.model_validate(new_user)
+    # Converter para dict e adicionar token
+    user_dict = {
+        "id": new_user.id,
+        "email": new_user.email,
+        "name": new_user.name,
+        "credits": new_user.credits,
+        "plan": new_user.plan,
+        "api_key": new_user.api_key,
+        "is_active": new_user.is_active,
+        "created_at": new_user.created_at,
+        "access_token": access_token,
+        "token_type": "bearer"
+    }
+    
+    return RegisterResponse(**user_dict)
 
 
 @router.get(
