@@ -97,7 +97,14 @@ export const userApi = {
   /**
    * Get current user profile
    */
-  getProfile: () => apiClient.get('/api/v1/users/me'),
+  getProfile: async () => {
+    const userData = await apiClient.get('/api/v1/users/me');
+    // Store user data for use in other API calls
+    if (userData && userData.id) {
+      localStorage.setItem('user_data', JSON.stringify(userData));
+    }
+    return userData;
+  },
 
   /**
    * Update user profile
