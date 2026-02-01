@@ -8,8 +8,9 @@ import {
   ArrowDown,
   Hexagon,
   ChevronRight,
+  ChevronDown,
   Activity,
-  Wind,
+  LogOut,
   Sun,
   Moon,
   Square,
@@ -26,7 +27,18 @@ import {
   AlertCircle,
   CheckCircle,
   LogIn,
-  Check
+  Check,
+  Key,
+  Code,
+  Terminal,
+  Book,
+  Copy,
+  ExternalLink,
+  Shield,
+  Users,
+  Heart,
+  Rocket,
+  FileCode
 } from 'lucide-react';
 import { useApi } from './context';
 
@@ -208,6 +220,189 @@ const GlobalStyles = ({ theme }) => (
 
 // --- COMPONENTES AUXILIARES ---
 
+// --- COMPONENTE DROPDOWN CUSTOMIZADO ---
+// Dropdown 100% customizado que substitui o <select> nativo
+// Mantém mesma funcionalidade com visual consistente ao design do site
+const CustomDropdown = ({ 
+  value,           // Valor selecionado atual
+  onChange,        // Callback ao selecionar opção
+  options,         // Array de opções: { value: string, label: string }
+  placeholder,     // Texto quando nenhuma opção selecionada
+  disabled = false // Desabilitar interação
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [focusedIndex, setFocusedIndex] = useState(-1);
+  const dropdownRef = useRef(null);
+  const listRef = useRef(null);
+
+  // Encontra a opção selecionada para exibir no trigger
+  const selectedOption = options.find(opt => opt.value === value);
+
+  // Fecha o dropdown ao clicar fora
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsOpen(false);
+        setFocusedIndex(-1);
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen]);
+
+  // Navegação por teclado para acessibilidade
+  const handleKeyDown = (e) => {
+    if (disabled) return;
+
+    switch (e.key) {
+      case 'Enter':
+      case ' ':
+        e.preventDefault();
+        if (!isOpen) {
+          setIsOpen(true);
+          setFocusedIndex(options.findIndex(opt => opt.value === value) || 0);
+        } else if (focusedIndex >= 0) {
+          handleSelect(options[focusedIndex].value);
+        }
+        break;
+      case 'Escape':
+        setIsOpen(false);
+        setFocusedIndex(-1);
+        break;
+      case 'ArrowDown':
+        e.preventDefault();
+        if (!isOpen) {
+          setIsOpen(true);
+          setFocusedIndex(0);
+        } else {
+          setFocusedIndex(prev => 
+            prev < options.length - 1 ? prev + 1 : prev
+          );
+        }
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        if (isOpen) {
+          setFocusedIndex(prev => prev > 0 ? prev - 1 : 0);
+        }
+        break;
+      case 'Tab':
+        setIsOpen(false);
+        setFocusedIndex(-1);
+        break;
+      default:
+        break;
+    }
+  };
+
+  // Handler de seleção de opção
+  const handleSelect = (optionValue) => {
+    onChange({ target: { value: optionValue } }); // Mantém compatibilidade com onChange do select nativo
+    setIsOpen(false);
+    setFocusedIndex(-1);
+  };
+
+  // Scroll automático para item focado
+  useEffect(() => {
+    if (isOpen && focusedIndex >= 0 && listRef.current) {
+      const focusedElement = listRef.current.children[focusedIndex];
+      if (focusedElement) {
+        focusedElement.scrollIntoView({ block: 'nearest' });
+      }
+    }
+  }, [focusedIndex, isOpen]);
+
+  return (
+    <div 
+      ref={dropdownRef}
+      className="relative w-full"
+    >
+      {/* Trigger Button */}
+      <button
+        type="button"
+        onClick={() => !disabled && setIsOpen(!isOpen)}
+        onKeyDown={handleKeyDown}
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-labelledby="dropdown-label"
+        className={`
+          w-full flex items-center justify-between gap-2
+          px-4 py-4 
+          bg-transparent 
+          border border-[var(--border-color)] 
+          text-[var(--text-primary)] 
+          font-['Space_Grotesk',sans-serif]
+          text-left
+          outline-none
+          transition-all duration-300
+          ${isOpen ? 'border-[var(--accent)] shadow-[0_0_15px_var(--accent-glow)]' : ''}
+          ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-[var(--accent)]/50'}
+        `}
+      >
+        <span className={selectedOption ? '' : 'text-[var(--text-secondary)]'}>
+          {selectedOption ? selectedOption.label : placeholder}
+        </span>
+        <ChevronDown 
+          size={18} 
+          className={`
+            text-[var(--text-secondary)] 
+            transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]
+            ${isOpen ? 'rotate-180' : 'rotate-0'}
+          `}
+        />
+      </button>
+
+      {/* Lista de Opções */}
+      <div
+        className={`
+          absolute top-full left-0 right-0 z-50
+          mt-1
+          bg-[var(--bg-primary)] 
+          border border-[var(--border-color)]
+          shadow-lg shadow-black/20
+          max-h-60 overflow-y-auto
+          origin-top
+          transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]
+          ${isOpen 
+            ? 'opacity-100 scale-y-100 translate-y-0' 
+            : 'opacity-0 scale-y-95 -translate-y-2 pointer-events-none'
+          }
+        `}
+        role="listbox"
+        ref={listRef}
+      >
+        {options.map((option, index) => (
+          <div
+            key={option.value}
+            role="option"
+            aria-selected={value === option.value}
+            onClick={() => handleSelect(option.value)}
+            className={`
+              px-4 py-3
+              cursor-pointer
+              transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]
+              ${value === option.value 
+                ? 'bg-[var(--accent)] text-white' 
+                : 'hover:bg-[var(--accent)]/30 hover:pl-5 text-[var(--text-primary)]'
+              }
+              ${focusedIndex === index && value !== option.value
+                ? 'bg-[var(--accent)]/15 pl-5' 
+                : ''
+              }
+            `}
+          >
+            {option.label}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 const SacredGeometry = ({ activeIndex, theme, minimal = false }) => {
   if (minimal) {
       return (
@@ -354,7 +549,7 @@ const HeroSection = ({ active }) => (
   <section className={`snap-section flex flex-col items-center justify-center text-center p-6 ${active ? 'active' : ''}`}>
     <div className="reveal-text transition-delay-200 mb-8">
       <div className="inline-flex items-center gap-3 px-4 py-1 border border-[var(--border-color)] bg-[var(--bg-secondary)] backdrop-blur-md">
-        <span className="w-2 h-2 bg-green-500 animate-pulse" />
+        <span className="w-2 h-2 animate-pulse" style={{ backgroundColor: '#22c55e' }} />
         <span className="text-xs font-mono uppercase tracking-widest text-[var(--text-secondary)]">Sys v2.6.0</span>
       </div>
     </div>
@@ -531,7 +726,9 @@ const PricingSection = ({ active }) => (
           <ul className="space-y-5 mb-10">
             {['5.000 Créditos', 'Fila Prioritária', 'Clone Instantâneo', 'API Access Key'].map((feat, i) => (
               <li key={i} className="flex items-center gap-4 text-sm font-bold uppercase tracking-wide">
-                <div className="w-4 h-4 bg-[var(--text-primary)] text-[var(--bg-primary)] flex items-center justify-center text-[10px]">✓</div>
+                <div className="w-4 h-4 bg-[var(--text-primary)] text-[var(--bg-primary)] flex items-center justify-center">
+                  <Check size={10} strokeWidth={3} />
+                </div>
                 {feat}
               </li>
             ))}
@@ -603,8 +800,14 @@ const DashboardSidebar = ({ activeTab, setActiveTab, onLogout }) => {
         ))}
       </nav>
 
-      <button onClick={onLogout} className="mt-auto text-[var(--text-secondary)] hover:text-red-500 p-4">
-        <Wind size={20} />
+      {/* Botão de logout/sair da conta */}
+      <button 
+        onClick={onLogout} 
+        className="mt-auto text-[var(--text-secondary)] hover:text-red-500 p-4"
+        title="Sair"
+        aria-label="Sair da conta"
+      >
+        <LogOut size={20} />
       </button>
     </div>
   );
@@ -830,6 +1033,7 @@ const VoiceEditor = ({ voice, onClose }) => {
             />
           </div>
 
+          {/* Botões de seleção de cor - apenas glow, sem aumento de tamanho */}
           <div className="space-y-2">
              <label className="text-xs font-bold uppercase tracking-widest text-[var(--text-secondary)]">Avatar / Cor</label>
              <div className="flex gap-4">
@@ -837,8 +1041,8 @@ const VoiceEditor = ({ voice, onClose }) => {
                  <button 
                    key={c} 
                    onClick={() => setColor(c)}
-                   className={`w-10 h-10 border-2 hover:scale-110 transition-transform ${
-                     color === c ? 'border-white ring-2 ring-[var(--accent)] scale-110' : 'border-[var(--border-color)]'
+                   className={`w-10 h-10 border-2 transition-shadow ${
+                     color === c ? 'border-white ring-2 ring-[var(--accent)] shadow-[0_0_12px_var(--accent-glow)]' : 'border-[var(--border-color)] hover:ring-2 hover:ring-[var(--accent)]/50 hover:shadow-[0_0_8px_var(--accent-glow)]'
                    }`} 
                    style={{ backgroundColor: c }} 
                  />
@@ -1012,28 +1216,7 @@ const DashboardArea = ({ theme, onLogout }) => {
         </div>
       )}
 
-      {/* System Status Badge - Mostra status de conexão e GPU */}
-      <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 text-xs font-mono bg-[var(--bg-secondary)]/80 backdrop-blur-sm px-3 py-2 border border-[var(--border-color)]">
-        <div className={`w-2 h-2 rounded-full ${
-          systemStatus.loading ? 'bg-yellow-500' : 
-          systemStatus.online ? (systemStatus.gpuAvailable ? 'bg-green-500' : 'bg-blue-500') : 
-          'bg-red-500'
-        } animate-pulse`} />
-        <span className="text-[var(--text-secondary)]">
-          {systemStatus.loading ? 'Conectando...' : 
-           !systemStatus.online ? `Offline ${systemStatus.nextRetryIn > 0 ? `(${systemStatus.nextRetryIn}s)` : ''}` :
-           systemStatus.gpuAvailable ? (systemStatus.gpuName || 'GPU Ativo') : 
-           'Modo CPU'}
-        </span>
-        {!systemStatus.online && !systemStatus.loading && (
-          <button 
-            onClick={retryConnection}
-            className="ml-2 text-[var(--accent)] hover:underline"
-          >
-            Reconectar
-          </button>
-        )}
-      </div>
+      {/* System Status Badge removido - info de status disponível no header */}
 
       <main className="flex-1 p-8 lg:p-12 overflow-hidden flex flex-col relative z-10">
         {/* Header da Área */}
@@ -1045,7 +1228,7 @@ const DashboardArea = ({ theme, onLogout }) => {
             <p className="text-[var(--text-secondary)] font-mono text-sm uppercase tracking-widest flex items-center gap-4">
               <span className="flex items-center gap-2">
                 F5-TTS Engine • 
-                <span className={systemStatus.gpuAvailable ? 'text-green-500' : 'text-blue-500'}>
+                <span className={systemStatus.gpuAvailable ? 'text-green-500' : 'text-[var(--accent)]'}>
                   {systemStatus.gpuAvailable ? (systemStatus.gpuName || 'GPU Ativo') : 'Modo CPU'}
                 </span>
               </span>
@@ -1121,7 +1304,19 @@ const StudioArea = () => {
   const { voiceProfiles, synthesis } = useApi();
   const [selectedProfileId, setSelectedProfileId] = useState('');
   const [text, setText] = useState('');
+  const [referenceText, setReferenceText] = useState('');  // Texto de referência do perfil selecionado
   const [emotion, setEmotion] = useState('neutral');
+
+  // Pré-preenche o texto de referência quando seleciona um perfil
+  const handleProfileSelect = (profileId) => {
+    setSelectedProfileId(profileId);
+    const profile = voiceProfiles.profiles.find(p => p.id === parseInt(profileId) || p.id === profileId);
+    if (profile?.reference_text) {
+      setReferenceText(profile.reference_text);
+    } else {
+      setReferenceText('');
+    }
+  };
 
   const handleGenerate = async () => {
     if (!selectedProfileId || !text.trim()) return;
@@ -1145,32 +1340,44 @@ const StudioArea = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
           <div className="space-y-2">
             <label className="text-xs font-bold uppercase tracking-widest text-[var(--text-secondary)]">Perfil de Voz</label>
-            <select 
+            <CustomDropdown
               value={selectedProfileId}
-              onChange={(e) => setSelectedProfileId(e.target.value)}
-              className="tech-input"
-            >
-              <option value="">Selecione uma voz...</option>
-              {voiceProfiles.profiles.map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
+              onChange={(e) => handleProfileSelect(e.target.value)}
+              placeholder="Selecione uma voz..."
+              options={voiceProfiles.profiles.map(p => ({ value: p.id, label: p.name }))}
+            />
           </div>
           
           <div className="space-y-2">
             <label className="text-xs font-bold uppercase tracking-widest text-[var(--text-secondary)]">Emoção</label>
-            <select 
+            <CustomDropdown
               value={emotion}
               onChange={(e) => setEmotion(e.target.value)}
-              className="tech-input"
-            >
-              {['neutral', 'happy', 'sad', 'angry', 'fearful', 'surprised', 'calm', 'whisper'].map(e => (
-                <option key={e} value={e}>{e.charAt(0).toUpperCase() + e.slice(1)}</option>
-              ))}
-            </select>
+              placeholder="Selecione uma emoção..."
+              options={['neutral', 'happy', 'sad', 'angry', 'fearful', 'surprised', 'calm', 'whisper'].map(e => ({
+                value: e,
+                label: e.charAt(0).toUpperCase() + e.slice(1)
+              }))}
+            />
           </div>
         </div>
         
+        {/* Campo de Texto de Referência - pré-preenchido pelo perfil selecionado */}
+        {referenceText && (
+          <div className="space-y-2 mb-6">
+            <label className="text-xs font-bold uppercase tracking-widest text-[var(--text-secondary)]">Texto de Referência (do Perfil)</label>
+            <textarea 
+              value={referenceText}
+              onChange={(e) => setReferenceText(e.target.value)}
+              className="tech-input h-20 resize-none bg-[var(--accent)]/5 border-[var(--accent)]/30"
+              placeholder="Transcrição do áudio de referência..."
+            />
+            <p className="text-[10px] text-[var(--text-secondary)] uppercase">
+              * Este texto foi salvo junto com o perfil de voz. Ele ajuda o F5-TTS a alinhar os fonemas corretamente.
+            </p>
+          </div>
+        )}
+
         <div className="space-y-2 mb-6">
           <label className="text-xs font-bold uppercase tracking-widest text-[var(--text-secondary)]">Texto para Síntese</label>
           <textarea 
@@ -1217,20 +1424,29 @@ const StudioArea = () => {
 };
 
 // --- API ACCESS AREA COMPONENT ---
+// Componente de documentação de API profissional inspirado em Stripe/OpenAI
 const ApiAccessArea = () => {
   const { auth, systemStatus } = useApi();
-  const [copied, setCopied] = useState(false);
+  const [copiedId, setCopiedId] = useState(null); // ID do item copiado
   const [generating, setGenerating] = useState(false);
   const [newApiKey, setNewApiKey] = useState(null);
   const [activeTab, setActiveTab] = useState('overview');
+  const [codeLanguage, setCodeLanguage] = useState('curl'); // Tab de linguagem selecionada
+  const [expandedEndpoints, setExpandedEndpoints] = useState({}); // Endpoints expandidos
   
   const apiKey = newApiKey || auth.user?.api_key || null;
   const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-  const copyToClipboard = (text) => {
+  // Função de copiar com feedback visual por ID
+  const copyToClipboard = (text, id = 'default') => {
     navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  // Toggle de endpoint expandido
+  const toggleEndpoint = (id) => {
+    setExpandedEndpoints(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
   const handleGenerateKey = async () => {
@@ -1258,6 +1474,7 @@ const ApiAccessArea = () => {
     }
   };
 
+  // Exemplos de código por linguagem
   const codeExamples = {
     curl: `curl -X POST "${baseUrl}/api/v1/voice/pipeline?user_id=${auth.user?.id || 'USER_ID'}" \\
   -H "Authorization: Bearer ${apiKey || 'YOUR_API_KEY'}" \\
@@ -1273,7 +1490,7 @@ const ApiAccessArea = () => {
 API_KEY = "${apiKey || 'YOUR_API_KEY'}"
 BASE_URL = "${baseUrl}"
 
-# Sintetizar voz
+# Sintetizar voz com o pipeline completo
 response = requests.post(
     f"{BASE_URL}/api/v1/voice/pipeline",
     params={"user_id": ${auth.user?.id || 'USER_ID'}},
@@ -1293,7 +1510,7 @@ else:
     javascript: `const API_KEY = '${apiKey || 'YOUR_API_KEY'}';
 const BASE_URL = '${baseUrl}';
 
-// Sintetizar voz
+// Sintetizar voz com o pipeline completo
 async function synthesize(text, profileId) {
   const response = await fetch(
     \`\${BASE_URL}/api/v1/voice/pipeline?user_id=${auth.user?.id || 'USER_ID'}\`,
@@ -1318,202 +1535,495 @@ async function synthesize(text, profileId) {
 synthesize('Olá mundo!', 1).then(console.log);`,
   };
 
+  // Configuração das tabs de navegação principal
+  const navTabs = [
+    { id: 'overview', label: 'Visão Geral', icon: Book },
+    { id: 'auth', label: 'Autenticação', icon: Key },
+    { id: 'examples', label: 'Exemplos', icon: Code },
+    { id: 'endpoints', label: 'Endpoints', icon: Terminal },
+  ];
+
+  // Configuração das tabs de linguagem
+  const languageTabs = [
+    { id: 'curl', label: 'cURL', icon: Terminal },
+    { id: 'python', label: 'Python', icon: FileCode },
+    { id: 'javascript', label: 'JavaScript', icon: Code },
+  ];
+
+  // Endpoints agrupados por categoria
+  const endpointGroups = [
+    {
+      category: 'Health',
+      icon: Heart,
+      description: 'Monitore o status e saúde da API',
+      endpoints: [
+        { 
+          method: 'GET', 
+          path: '/health', 
+          desc: 'Status da API',
+          details: 'Retorna o status básico da API. Útil para health checks.',
+          auth: false,
+          response: '{ "status": "healthy", "timestamp": "..." }'
+        },
+        { 
+          method: 'GET', 
+          path: '/health/detailed', 
+          desc: 'Status detalhado',
+          details: 'Retorna informações detalhadas incluindo GPU, memória e modelos carregados.',
+          auth: false,
+          response: '{ "status": "healthy", "gpu_available": true, "models": [...] }'
+        },
+      ]
+    },
+    {
+      category: 'Voice',
+      icon: Mic,
+      description: 'Endpoints de clonagem e síntese de voz',
+      endpoints: [
+        { 
+          method: 'POST', 
+          path: '/voice/pipeline', 
+          desc: 'Pipeline completo TTS + RVC',
+          details: 'Executa o pipeline completo: Text-to-Speech seguido de conversão RVC para clonagem de voz.',
+          auth: true,
+          response: '{ "audio_url": "...", "duration": 3.5, "credits_used": 1 }'
+        },
+        { 
+          method: 'POST', 
+          path: '/voice/clone', 
+          desc: 'Clonagem de voz (TTS)',
+          details: 'Gera áudio usando apenas Text-to-Speech sem conversão RVC.',
+          auth: true,
+          response: '{ "audio_url": "...", "duration": 2.1 }'
+        },
+        { 
+          method: 'GET', 
+          path: '/voice/profiles', 
+          desc: 'Listar perfis',
+          details: 'Retorna todos os perfis de voz do usuário autenticado.',
+          auth: true,
+          response: '[{ "id": 1, "name": "...", "created_at": "..." }]'
+        },
+        { 
+          method: 'POST', 
+          path: '/voice/profiles', 
+          desc: 'Criar perfil',
+          details: 'Cria um novo perfil de voz com arquivos de áudio de referência.',
+          auth: true,
+          response: '{ "id": 2, "name": "...", "status": "created" }'
+        },
+        { 
+          method: 'DELETE', 
+          path: '/voice/profiles/{id}', 
+          desc: 'Excluir perfil',
+          details: 'Remove permanentemente um perfil de voz e seus arquivos associados.',
+          auth: true,
+          response: '{ "message": "Profile deleted" }'
+        },
+      ]
+    },
+    {
+      category: 'Users',
+      icon: Users,
+      description: 'Gerenciamento de usuários e créditos',
+      endpoints: [
+        { 
+          method: 'GET', 
+          path: '/users/me', 
+          desc: 'Dados do usuário',
+          details: 'Retorna informações do usuário autenticado incluindo email, nome e configurações.',
+          auth: true,
+          response: '{ "id": 1, "email": "...", "name": "...", "credits": 100 }'
+        },
+        { 
+          method: 'GET', 
+          path: '/users/credits', 
+          desc: 'Saldo de créditos',
+          details: 'Retorna o saldo atual de créditos do usuário.',
+          auth: true,
+          response: '{ "credits": 100, "plan": "pro" }'
+        },
+      ]
+    },
+  ];
+
+  // Componente de bloco de código com botão de copiar
+  const CodeBlock = ({ code, id, language }) => (
+    <div className="relative group">
+      <pre className="p-4 bg-[var(--bg-primary)] border border-[var(--border-color)] font-mono text-xs overflow-x-auto rounded-lg">
+        <code className="text-[var(--text-secondary)]">{code}</code>
+      </pre>
+      <button
+        onClick={() => copyToClipboard(code, id)}
+        className="absolute top-3 right-3 p-2 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded opacity-0 group-hover:opacity-100 transition-all hover:bg-[var(--accent)] hover:border-[var(--accent)] hover:text-white"
+        title="Copiar código"
+      >
+        {copiedId === id ? <Check size={14} /> : <Copy size={14} />}
+      </button>
+    </div>
+  );
+
+  // Componente de card de status com hover
+  const StatusCard = ({ icon: Icon, value, label, accent = false }) => (
+    <div className="group p-5 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg transition-all duration-300 hover:border-[var(--accent)] hover:shadow-lg hover:shadow-[var(--accent)]/10 hover:-translate-y-1">
+      <div className="flex items-center gap-3 mb-2">
+        <div className={`p-2 rounded-lg ${accent ? 'bg-[var(--accent)]/20 text-[var(--accent)]' : 'bg-[var(--border-color)]'}`}>
+          <Icon size={20} />
+        </div>
+        <div className={`text-2xl font-bold ${accent ? 'text-[var(--accent)]' : ''}`}>{value}</div>
+      </div>
+      <div className="text-xs text-[var(--text-secondary)] uppercase tracking-wider">{label}</div>
+    </div>
+  );
+
   return (
-    <div className="h-full flex flex-col gap-8 animate-fade-in overflow-y-auto pb-20">
-      {/* Tabs de navegação */}
-      <div className="flex gap-4 border-b border-[var(--border-color)]">
-        {[
-          { id: 'overview', label: 'Visão Geral' },
-          { id: 'auth', label: 'Autenticação' },
-          { id: 'examples', label: 'Exemplos' },
-          { id: 'endpoints', label: 'Endpoints' },
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`px-4 py-3 text-sm font-bold uppercase tracking-wider border-b-2 transition-colors ${
-              activeTab === tab.id
-                ? 'border-[var(--accent)] text-[var(--accent)]'
-                : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
+    <div className="h-full flex flex-col gap-6 animate-fade-in overflow-y-auto pb-20">
+      {/* Hero Banner com gradiente */}
+      <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-[var(--accent)]/20 via-[var(--depth-color)]/10 to-transparent border border-[var(--accent)]/30 p-8">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-[var(--accent)]/10 rounded-full blur-3xl" />
+        <div className="relative z-10">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="p-2 bg-[var(--accent)] rounded-lg">
+              <Cpu size={24} className="text-white" />
+            </div>
+            <h2 className="text-2xl font-bold uppercase tracking-wider">Aether Voice API</h2>
+          </div>
+          <p className="text-[var(--text-secondary)] max-w-2xl">
+            Integre clonagem e síntese de voz de alta qualidade em suas aplicações. 
+            Nossa API oferece processamento em tempo real com suporte a GPU para máxima performance.
+          </p>
+          <div className="flex gap-3 mt-4">
+            <span className="px-3 py-1 text-xs font-bold uppercase bg-green-500/20 text-green-400 rounded-full flex items-center gap-1">
+              <Activity size={12} /> v1.0
+            </span>
+            <span className="px-3 py-1 text-xs font-bold uppercase bg-[var(--accent)]/20 text-[var(--accent)] rounded-full">
+              REST API
+            </span>
+          </div>
+        </div>
       </div>
 
-      {/* Seção Visão Geral */}
+      {/* Tabs de navegação principal */}
+      <div className="flex gap-1 p-1 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg">
+        {navTabs.map((tab) => {
+          const Icon = tab.icon;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex-1 px-4 py-3 text-sm font-bold uppercase tracking-wider rounded-md transition-all flex items-center justify-center gap-2 ${
+                activeTab === tab.id
+                  ? 'bg-[var(--accent)] text-white shadow-lg shadow-[var(--accent)]/30'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--border-color)]/50'
+              }`}
+            >
+              <Icon size={16} />
+              <span className="hidden sm:inline">{tab.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ========== SEÇÃO VISÃO GERAL ========== */}
       {activeTab === 'overview' && (
         <div className="space-y-6">
+          {/* Cards de Status */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <StatusCard 
+              icon={Zap} 
+              value={auth.user?.credits?.toFixed(0) || 0} 
+              label="Créditos Disponíveis" 
+              accent 
+            />
+            <StatusCard 
+              icon={Activity} 
+              value={systemStatus.online ? 'Online' : 'Offline'} 
+              label="Status da API" 
+            />
+            <StatusCard 
+              icon={Cpu} 
+              value={systemStatus.gpuAvailable ? 'GPU' : 'CPU'} 
+              label="Modo de Processamento" 
+            />
+          </div>
+
+          {/* Quick Start - 3 passos */}
           <div className="glass-panel p-8">
-            <h3 className="font-bold text-xl mb-4 uppercase tracking-wider flex items-center gap-2">
-              <Cpu size={24} /> API Overview
+            <h3 className="font-bold text-lg mb-6 uppercase tracking-wider flex items-center gap-2">
+              <Rocket size={20} className="text-[var(--accent)]" /> Quick Start
             </h3>
-            <p className="text-[var(--text-secondary)] mb-6">
-              A Aether Voice API permite integrar clonagem e síntese de voz em suas aplicações.
-              Use sua API Key para autenticar requisições e acessar todos os endpoints programaticamente.
-            </p>
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="p-4 bg-[var(--bg-primary)] border border-[var(--border-color)]">
-                <div className="text-2xl font-bold text-[var(--accent)]">{auth.user?.credits?.toFixed(0) || 0}</div>
-                <div className="text-xs text-[var(--text-secondary)] uppercase tracking-wider">Créditos Disponíveis</div>
-              </div>
-              <div className="p-4 bg-[var(--bg-primary)] border border-[var(--border-color)]">
-                <div className="text-2xl font-bold">{systemStatus.online ? 'Online' : 'Offline'}</div>
-                <div className="text-xs text-[var(--text-secondary)] uppercase tracking-wider">Status da API</div>
-              </div>
-              <div className="p-4 bg-[var(--bg-primary)] border border-[var(--border-color)]">
-                <div className="text-2xl font-bold">{systemStatus.gpuAvailable ? 'GPU' : 'CPU'}</div>
-                <div className="text-xs text-[var(--text-secondary)] uppercase tracking-wider">Modo de Processamento</div>
-              </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {[
+                { step: 1, title: 'Gere sua API Key', desc: 'Vá até a aba Autenticação e gere sua chave de acesso única.', icon: Key },
+                { step: 2, title: 'Crie um Perfil', desc: 'Faça upload de amostras de áudio para criar um perfil de voz.', icon: Mic },
+                { step: 3, title: 'Sintetize', desc: 'Use o endpoint /voice/pipeline para gerar áudios clonados.', icon: Play },
+              ].map((item) => {
+                const Icon = item.icon;
+                return (
+                  <div key={item.step} className="relative pl-12">
+                    <div className="absolute left-0 top-0 w-8 h-8 rounded-full bg-[var(--accent)] text-white flex items-center justify-center font-bold text-sm">
+                      {item.step}
+                    </div>
+                    <h4 className="font-bold mb-1 flex items-center gap-2">
+                      <Icon size={16} className="text-[var(--accent)]" />
+                      {item.title}
+                    </h4>
+                    <p className="text-sm text-[var(--text-secondary)]">{item.desc}</p>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
-          <div className="space-y-2">
-            <label className="text-xs font-bold uppercase tracking-widest text-[var(--text-secondary)]">Base URL</label>
+          {/* Base URL */}
+          <div className="glass-panel p-6">
+            <label className="text-xs font-bold uppercase tracking-widest text-[var(--text-secondary)] mb-3 block flex items-center gap-2">
+              <Globe size={14} /> Base URL
+            </label>
             <div className="flex gap-2">
-              <code className="flex-1 p-4 bg-[var(--bg-primary)] border border-[var(--border-color)] font-mono text-sm">
-                {baseUrl}/api/v1
+              <code className="flex-1 p-4 bg-[var(--bg-primary)] border border-[var(--border-color)] font-mono text-sm rounded-lg flex items-center">
+                <span className="text-[var(--accent)]">{baseUrl}</span>
+                <span className="text-[var(--text-secondary)]">/api/v1</span>
               </code>
               <button 
-                onClick={() => copyToClipboard(`${baseUrl}/api/v1`)}
-                className="px-4 py-2 border border-[var(--border-color)] text-xs uppercase tracking-wider hover:bg-[var(--accent)] hover:text-white hover:border-[var(--accent)] transition-colors"
+                onClick={() => copyToClipboard(`${baseUrl}/api/v1`, 'baseUrl')}
+                className="px-4 py-2 border border-[var(--border-color)] text-xs uppercase tracking-wider hover:bg-[var(--accent)] hover:text-white hover:border-[var(--accent)] transition-all rounded-lg flex items-center gap-2"
               >
-                Copiar
+                {copiedId === 'baseUrl' ? <Check size={14} /> : <Copy size={14} />}
+                <span className="hidden sm:inline">Copiar</span>
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Seção Autenticação */}
+      {/* ========== SEÇÃO AUTENTICAÇÃO ========== */}
       {activeTab === 'auth' && (
         <div className="space-y-6">
           <div className="glass-panel p-8">
-            <h3 className="font-bold text-xl mb-6 uppercase tracking-wider">Sua API Key</h3>
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 bg-[var(--accent)]/20 rounded-lg">
+                <Key size={24} className="text-[var(--accent)]" />
+              </div>
+              <div>
+                <h3 className="font-bold text-xl uppercase tracking-wider">Sua API Key</h3>
+                <p className="text-sm text-[var(--text-secondary)]">Chave de autenticação para acessar a API</p>
+              </div>
+            </div>
             
             <div className="space-y-4">
               <div className="flex gap-2">
-                <input 
-                  type="text" 
-                  readOnly 
-                  value={apiKey || 'Nenhuma API Key gerada'}
-                  className="tech-input flex-1 font-mono text-sm"
-                />
-                {apiKey && (
-                  <button 
-                    onClick={() => copyToClipboard(apiKey)}
-                    className="px-4 py-2 border border-[var(--border-color)] text-xs uppercase tracking-wider hover:bg-[var(--accent)] hover:text-white hover:border-[var(--accent)] transition-colors flex items-center gap-2"
-                  >
-                    {copied ? <CheckCircle size={16} /> : 'Copiar'}
-                  </button>
-                )}
+                <div className="flex-1 relative">
+                  <input 
+                    type="text" 
+                    readOnly 
+                    value={apiKey || 'Nenhuma API Key gerada'}
+                    className="tech-input w-full font-mono text-sm pr-12"
+                  />
+                  {apiKey && (
+                    <button 
+                      onClick={() => copyToClipboard(apiKey, 'apiKey')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-2 hover:bg-[var(--accent)]/20 rounded transition-colors"
+                      title="Copiar API Key"
+                    >
+                      {copiedId === 'apiKey' ? <Check size={16} className="text-green-500" /> : <Copy size={16} />}
+                    </button>
+                  )}
+                </div>
               </div>
               
               <button
                 onClick={handleGenerateKey}
                 disabled={generating}
-                className="px-6 py-3 bg-[var(--accent)] text-white font-bold uppercase tracking-wider flex items-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-50"
+                className="px-6 py-3 bg-[var(--accent)] text-white font-bold uppercase tracking-wider flex items-center gap-2 hover:opacity-90 transition-all disabled:opacity-50 rounded-lg shadow-lg shadow-[var(--accent)]/30"
               >
                 {generating ? <Loader2 size={18} className="animate-spin" /> : <Zap size={18} />}
                 {apiKey ? 'Regenerar API Key' : 'Gerar API Key'}
               </button>
               
-              <p className="text-xs text-[var(--text-secondary)]">
-                ⚠️ A API Key é exibida apenas uma vez após geração. Guarde-a em local seguro.
-              </p>
+              <div className="p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-start gap-3">
+                <AlertCircle size={18} className="text-yellow-500 mt-0.5 flex-shrink-0" />
+                <div className="text-sm">
+                  <p className="font-bold text-yellow-500">Importante</p>
+                  <p className="text-[var(--text-secondary)]">A API Key é exibida apenas uma vez após geração. Guarde-a em local seguro.</p>
+                </div>
+              </div>
             </div>
           </div>
 
           <div className="glass-panel p-8">
-            <h3 className="font-bold text-lg mb-4 uppercase tracking-wider">Como Autenticar</h3>
-            <p className="text-[var(--text-secondary)] mb-4">
-              Inclua sua API Key no header <code className="bg-[var(--bg-primary)] px-2 py-1">Authorization</code> de todas as requisições:
-            </p>
-            <pre className="p-4 bg-[var(--bg-primary)] border border-[var(--border-color)] font-mono text-xs overflow-x-auto">
-{`Authorization: Bearer ${apiKey || 'YOUR_API_KEY'}`}
-            </pre>
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 bg-[var(--accent)]/20 rounded-lg">
+                <Shield size={24} className="text-[var(--accent)]" />
+              </div>
+              <div>
+                <h3 className="font-bold text-lg uppercase tracking-wider">Como Autenticar</h3>
+                <p className="text-sm text-[var(--text-secondary)]">Adicione o header em todas as requisições</p>
+              </div>
+            </div>
+            
+            <CodeBlock 
+              code={`Authorization: Bearer ${apiKey || 'YOUR_API_KEY'}`} 
+              id="authHeader" 
+            />
+
+            <div className="mt-4 p-4 bg-[var(--accent)]/5 border border-[var(--accent)]/20 rounded-lg">
+              <p className="text-sm text-[var(--text-secondary)]">
+                <span className="text-[var(--accent)] font-bold">Dica:</span> Endpoints marcados com 
+                <span className="mx-1 px-2 py-0.5 bg-[var(--accent)]/20 text-[var(--accent)] text-xs rounded">Auth</span> 
+                requerem autenticação.
+              </p>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Seção Exemplos */}
+      {/* ========== SEÇÃO EXEMPLOS ========== */}
       {activeTab === 'examples' && (
         <div className="space-y-6">
           <div className="glass-panel p-8">
-            <h3 className="font-bold text-xl mb-6 uppercase tracking-wider">Exemplos de Código</h3>
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-[var(--accent)]/20 rounded-lg">
+                  <Code size={24} className="text-[var(--accent)]" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-xl uppercase tracking-wider">Exemplos de Código</h3>
+                  <p className="text-sm text-[var(--text-secondary)]">Pipeline de síntese de voz</p>
+                </div>
+              </div>
+            </div>
             
-            <div className="space-y-6">
-              <div>
-                <label className="text-xs font-bold uppercase tracking-widest text-[var(--text-secondary)] mb-2 block">cURL</label>
-                <pre className="p-4 bg-[var(--bg-primary)] border border-[var(--border-color)] font-mono text-xs overflow-x-auto">
-                  {codeExamples.curl}
-                </pre>
-              </div>
-              
-              <div>
-                <label className="text-xs font-bold uppercase tracking-widest text-[var(--text-secondary)] mb-2 block">Python</label>
-                <pre className="p-4 bg-[var(--bg-primary)] border border-[var(--border-color)] font-mono text-xs overflow-x-auto">
-                  {codeExamples.python}
-                </pre>
-              </div>
-              
-              <div>
-                <label className="text-xs font-bold uppercase tracking-widest text-[var(--text-secondary)] mb-2 block">JavaScript</label>
-                <pre className="p-4 bg-[var(--bg-primary)] border border-[var(--border-color)] font-mono text-xs overflow-x-auto">
-                  {codeExamples.javascript}
-                </pre>
-              </div>
+            {/* Tabs de linguagem */}
+            <div className="flex gap-1 p-1 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg mb-4">
+              {languageTabs.map((tab) => {
+                const Icon = tab.icon;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setCodeLanguage(tab.id)}
+                    className={`flex-1 px-4 py-2 text-sm font-bold uppercase tracking-wider rounded-md transition-all flex items-center justify-center gap-2 ${
+                      codeLanguage === tab.id
+                        ? 'bg-[var(--accent)] text-white'
+                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--border-color)]/50'
+                    }`}
+                  >
+                    <Icon size={14} />
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Bloco de código da linguagem selecionada */}
+            <CodeBlock 
+              code={codeExamples[codeLanguage]} 
+              id={`code-${codeLanguage}`} 
+              language={codeLanguage}
+            />
+
+            <div className="mt-4 p-4 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg">
+              <p className="text-sm text-[var(--text-secondary)]">
+                <span className="text-[var(--accent)] font-bold">Parâmetros:</span>
+              </p>
+              <ul className="mt-2 space-y-1 text-sm text-[var(--text-secondary)]">
+                <li>• <code className="text-[var(--text-primary)]">profile_id</code> - ID do perfil de voz</li>
+                <li>• <code className="text-[var(--text-primary)]">text</code> - Texto para sintetizar</li>
+                <li>• <code className="text-[var(--text-primary)]">emotion</code> - Emoção (neutral, happy, sad, angry)</li>
+                <li>• <code className="text-[var(--text-primary)]">language</code> - Idioma (pt-BR, en-US, etc)</li>
+              </ul>
             </div>
           </div>
         </div>
       )}
 
-      {/* Seção Endpoints */}
+      {/* ========== SEÇÃO ENDPOINTS ========== */}
       {activeTab === 'endpoints' && (
         <div className="space-y-6">
-          <div className="glass-panel p-8">
-            <h3 className="font-bold text-xl mb-6 uppercase tracking-wider">Endpoints Disponíveis</h3>
-            
-            <div className="space-y-4">
-              {[
-                { method: 'GET', path: '/health', desc: 'Status da API' },
-                { method: 'GET', path: '/health/detailed', desc: 'Status detalhado com info de GPU' },
-                { method: 'POST', path: '/voice/pipeline', desc: 'Pipeline completo TTS + RVC' },
-                { method: 'POST', path: '/voice/clone', desc: 'Clonagem de voz (TTS apenas)' },
-                { method: 'GET', path: '/voice/profiles', desc: 'Listar perfis de voz' },
-                { method: 'POST', path: '/voice/profiles', desc: 'Criar perfil de voz' },
-                { method: 'DELETE', path: '/voice/profiles/{id}', desc: 'Excluir perfil de voz' },
-                { method: 'GET', path: '/users/me', desc: 'Dados do usuário atual' },
-                { method: 'GET', path: '/users/credits', desc: 'Saldo de créditos' },
-              ].map((endpoint, i) => (
-                <div key={i} className="flex items-center gap-4 p-3 bg-[var(--bg-primary)] border border-[var(--border-color)]">
-                  <span className={`px-2 py-1 text-xs font-bold uppercase ${
-                    endpoint.method === 'GET' ? 'bg-green-500/20 text-green-500' :
-                    endpoint.method === 'POST' ? 'bg-blue-500/20 text-blue-500' :
-                    'bg-red-500/20 text-red-500'
-                  }`}>
-                    {endpoint.method}
-                  </span>
-                  <code className="font-mono text-sm flex-1">/api/v1{endpoint.path}</code>
-                  <span className="text-xs text-[var(--text-secondary)]">{endpoint.desc}</span>
+          {endpointGroups.map((group) => {
+            const GroupIcon = group.icon;
+            return (
+              <div key={group.category} className="glass-panel p-6">
+                {/* Header do grupo */}
+                <div className="flex items-center gap-3 mb-4 pb-4 border-b border-[var(--border-color)]">
+                  <div className="p-2 bg-[var(--accent)]/20 rounded-lg">
+                    <GroupIcon size={20} className="text-[var(--accent)]" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-lg uppercase tracking-wider">{group.category}</h3>
+                    <p className="text-sm text-[var(--text-secondary)]">{group.description}</p>
+                  </div>
                 </div>
-              ))}
-            </div>
+                
+                {/* Lista de endpoints */}
+                <div className="space-y-2">
+                  {group.endpoints.map((endpoint, i) => {
+                    const endpointId = `${group.category}-${i}`;
+                    const isExpanded = expandedEndpoints[endpointId];
+                    
+                    return (
+                      <div key={i} className="border border-[var(--border-color)] rounded-lg overflow-hidden transition-all hover:border-[var(--accent)]/50">
+                        {/* Linha principal do endpoint */}
+                        <button
+                          onClick={() => toggleEndpoint(endpointId)}
+                          className="w-full flex items-center gap-4 p-4 bg-[var(--bg-primary)] hover:bg-[var(--bg-primary)]/80 transition-colors text-left"
+                        >
+                          <span className={`px-2 py-1 text-xs font-bold uppercase rounded ${
+                            endpoint.method === 'GET' ? 'bg-green-500/20 text-green-400' :
+                            endpoint.method === 'POST' ? 'bg-blue-500/20 text-blue-400' :
+                            'bg-red-500/20 text-red-400'
+                          }`}>
+                            {endpoint.method}
+                          </span>
+                          <code className="font-mono text-sm flex-1">/api/v1{endpoint.path}</code>
+                          <span className="text-xs text-[var(--text-secondary)] hidden sm:block">{endpoint.desc}</span>
+                          {endpoint.auth && (
+                            <span className="px-2 py-0.5 text-xs bg-[var(--accent)]/20 text-[var(--accent)] rounded flex items-center gap-1">
+                              <Key size={10} /> Auth
+                            </span>
+                          )}
+                          <ChevronDown 
+                            size={16} 
+                            className={`text-[var(--text-secondary)] transition-transform ${isExpanded ? 'rotate-180' : ''}`} 
+                          />
+                        </button>
+                        
+                        {/* Detalhes expandidos */}
+                        {isExpanded && (
+                          <div className="p-4 bg-[var(--bg-secondary)] border-t border-[var(--border-color)] space-y-3 animate-fade-in">
+                            <p className="text-sm text-[var(--text-secondary)]">{endpoint.details}</p>
+                            <div>
+                              <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-secondary)] block mb-2">Resposta de exemplo:</span>
+                              <CodeBlock code={endpoint.response} id={`response-${endpointId}`} />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
             
-            <div className="mt-6 p-4 border border-[var(--border-color)] bg-[var(--accent)]/5">
-              <p className="text-sm">
-                📚 Documentação completa disponível em{' '}
-                <a 
-                  href={`${baseUrl}/docs`} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="text-[var(--accent)] hover:underline"
-                >
-                  {baseUrl}/docs
-                </a>
-              </p>
+          {/* Link para documentação completa */}
+          <div className="glass-panel p-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Book size={20} className="text-[var(--accent)]" />
+                <div>
+                  <p className="font-bold">Documentação Completa</p>
+                  <p className="text-sm text-[var(--text-secondary)]">Swagger UI com todos os endpoints e schemas</p>
+                </div>
+              </div>
+              <a 
+                href={`${baseUrl}/docs`} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="px-4 py-2 bg-[var(--accent)] text-white font-bold uppercase tracking-wider text-sm rounded-lg flex items-center gap-2 hover:opacity-90 transition-opacity"
+              >
+                Abrir Docs <ExternalLink size={14} />
+              </a>
             </div>
           </div>
         </div>
@@ -1720,24 +2230,30 @@ const App = () => {
           <SacredGeometry activeIndex={activeIndex} theme={theme} />
           <NavigationDots total={5} active={activeIndex} scrollTo={scrollTo} />
 
-          {/* Header Landing */}
-          <div className="fixed top-0 left-0 w-full p-8 flex justify-between items-center z-50 pointer-events-none mix-blend-difference text-white">
-            <div className="flex items-center gap-2 pointer-events-auto">
+          {/* Header Landing - mix-blend-difference inverte cores, então status fica separado */}
+          <div className="fixed top-0 left-0 w-full p-8 flex justify-between items-center z-50 pointer-events-none">
+            {/* Logo com mix-blend-difference */}
+            <div className="flex items-center gap-2 pointer-events-auto mix-blend-difference text-white">
               <Box className="animate-pulse" size={24} strokeWidth={2} />
               <span className="font-bold tracking-widest text-lg">AETHER</span>
             </div>
             <div className="flex items-center gap-6 pointer-events-auto">
-              {/* System Status Indicator */}
+              {/* System Status Indicator - SEM mix-blend para manter cor verde correta */}
               <div className="flex items-center gap-2 text-xs">
-                <div className={`w-2 h-2 rounded-full ${systemStatus.online ? 'bg-green-500' : 'bg-red-500'}`} />
-                <span className="opacity-70">{systemStatus.online ? 'Online' : 'Offline'}</span>
+                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: systemStatus.online ? '#22c55e' : '#ef4444' }} />
+                <span style={{ color: systemStatus.online ? '#22c55e' : '#ef4444' }}>
+                  {systemStatus.online ? 'Online' : 'Offline'}
+                </span>
               </div>
-              <button onClick={toggleTheme} className="p-2 border border-white/20 hover:bg-white/10 transition-colors">
-                {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-              </button>
-              <button onClick={handleLoginClick} className="px-6 py-2 border border-white text-xs font-bold hover:bg-white hover:text-black transition-colors uppercase tracking-widest">
-                Login
-              </button>
+              {/* Botões com mix-blend-difference */}
+              <div className="flex items-center gap-4 mix-blend-difference text-white">
+                <button onClick={toggleTheme} className="p-2 border border-white/20 hover:bg-white/10 transition-colors">
+                  {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+                </button>
+                <button onClick={handleLoginClick} className="px-6 py-2 border border-white text-xs font-bold hover:bg-white hover:text-black transition-colors uppercase tracking-widest">
+                  Login
+                </button>
+              </div>
             </div>
           </div>
 

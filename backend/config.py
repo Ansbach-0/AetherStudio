@@ -6,9 +6,13 @@ com validação de tipos e valores padrão seguros.
 """
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Any, List, Union
 from pydantic import field_validator, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 def parse_comma_list(v: Union[str, List[str], None], default: List[str]) -> List[str]:
@@ -29,6 +33,18 @@ def parse_comma_list(v: Union[str, List[str], None], default: List[str]) -> List
         # Fall back to comma-separated parsing
         return [item.strip() for item in v.split(",") if item.strip()]
     return default
+
+
+def normalize_origins(origins: List[str]) -> List[str]:
+    """Normaliza origens CORS removendo espaços, barras finais e duplicados."""
+    cleaned: List[str] = []
+    for origin in origins:
+        if not isinstance(origin, str):
+            continue
+        normalized = origin.strip().rstrip("/")
+        if normalized and normalized not in cleaned:
+            cleaned.append(normalized)
+    return cleaned
 
 
 class Settings(BaseSettings):
@@ -80,7 +96,8 @@ class Settings(BaseSettings):
     @field_validator("cors_origins", mode="before")
     @classmethod
     def parse_cors(cls, v):
-        return parse_comma_list(v, ["http://localhost:5173", "http://localhost:3000"])
+        origins = parse_comma_list(v, ["http://localhost:5173", "http://localhost:3000"])
+        return normalize_origins(origins)
     
     # Configurações gerais da aplicação
     app_name: str = "Voice Cloning SaaS API"
@@ -88,10 +105,10 @@ class Settings(BaseSettings):
     debug: bool = False
     
     # Banco de dados
-    database_url: str = "sqlite+aiosqlite:///./voice_cloning.db"
+    database_url: str = f"sqlite+aiosqlite:///{(BASE_DIR / 'voice_cloning.db').as_posix()}"
     
     # Configurações de GPU/ML
-    gpu_device: str = "cuda:0"
+    gpu_device: str = "cpu"
     torch_threads: int = 4
     
     # Configurações ROCm para GPUs AMD (APENAS LINUX NATIVO)
@@ -111,7 +128,7 @@ class Settings(BaseSettings):
     
     # DirectML - ÚNICA opção para GPU AMD em WSL2
     # Funciona via /dev/dxg exposto pelo Windows
-    use_directml: bool = True
+    use_directml: bool = False
     directml_device_id: int = 0
     
     # Limites de áudio
@@ -124,11 +141,14 @@ class Settings(BaseSettings):
     allowed_languages: Any = Field(default=["pt-BR", "en-US", "es-ES"])
     
     # Diretórios
-    upload_dir: str = "./uploads"
-    models_dir: str = "./models"
-    output_dir: str = "./outputs"
-    rvc_repo_dir: str = "./third_party/rvc-webui"
-    rvc_env_name: str = "voicecloner"
+    upload_dir: str = str(BASE_DIR / "uploads")
+    models_dir: str = str(BASE_DIR / "models")
+    output_dir: str = str(BASE_DIR / "outputs")
+    rvc_repo_dir: str = str(BASE_DIR / "third_party" / "rvc-webui")
+    rvc_env_name: str = "voicecloner-rvc-py310"
+    rvc_auto_setup: bool = True
+    rvc_requirements_path: str = str(BASE_DIR / "backend" / "requirements-rvc.txt")
+    rvc_python_version: str = "3.10"
     
     # Sistema de créditos
     default_credits: int = 100
@@ -143,12 +163,20 @@ class Settings(BaseSettings):
     cache_ttl_seconds: int = 3600
     max_concurrent_tasks: int = 3
     
-    # CORS - use Any to bypass JSON parsing
-    cors_origins: Any = Field(default=["http://localhost:5173", "http://localhost:3000"])
+    # CORS - Origens permitidas para requisições cross-origin
+    # IMPORTANTE: Não incluir barra final nas URLs, usar formato exato
+    # Exemplo: http://localhost:5173 (correto) vs http://localhost:5173/ (incorreto)
+    cors_origins: Any = Field(
+        default=["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"]
+    )
     
     # Segurança
     secret_key: str = "change-me-in-production-use-strong-secret"
     api_key_header: str = "X-API-Key"
+    
+    # HuggingFace Cache - evita re-download de modelos
+    # Define onde os modelos HuggingFace (Whisper, Vocos, etc) são armazenados
+    hf_home: str = str(BASE_DIR / "models" / "huggingface")
     
     # Mercado Pago (deixe vazio para modo placeholder/manutenção)
     mercadopago_access_token: str = ""

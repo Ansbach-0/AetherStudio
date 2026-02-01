@@ -76,9 +76,6 @@ def setup_logging() -> None:
     
     # Silenciar logs verbosos de bibliotecas
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
-    logging.getLogger("sqlalchemy.engine").setLevel(
-        logging.INFO if settings.debug else logging.WARNING
-    )
 
 
 def add_request_id(logger: Any, method_name: str, event_dict: dict) -> dict:

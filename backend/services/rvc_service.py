@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import gc
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -44,6 +45,12 @@ except ImportError:
     TORCH_AVAILABLE = False
     torch = None
     torchaudio = None
+
+TORCHCODEC_AVAILABLE = False
+TORCHAUDIO_IO_AVAILABLE = False
+if TORCH_AVAILABLE and torchaudio is not None:
+    TORCHCODEC_AVAILABLE = importlib.util.find_spec("torchcodec") is not None
+    TORCHAUDIO_IO_AVAILABLE = TORCHCODEC_AVAILABLE
 
 # Tentar importar DirectML se disponível
 try:
@@ -267,9 +274,9 @@ class RVCService:
         
         # Verificar dependências mínimas
         if not NUMPY_AVAILABLE:
-            logger.warning("NumPy não disponível. RVC operando em modo mock.")
-            self.is_loaded = True
-            return True
+            error_msg = "NumPy não disponível. RVC não pode iniciar."
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
         
         try:
             # Definir caminho do modelo
@@ -287,9 +294,7 @@ class RVCService:
             
         except Exception as e:
             logger.error(f"Erro ao carregar modelo RVC: {e}")
-            logger.warning("RVC operando em modo mock")
-            self.is_loaded = True  # Permite operar em modo mock
-            return True
+            raise
     
     def _load_model_sync(self) -> None:
         """Carregamento síncrono do modelo (executado em thread)."""
@@ -316,8 +321,7 @@ class RVCService:
         
         # Verificar se existem modelos
         if not model_dir.exists():
-            logger.warning(f"Diretório de modelos não existe: {model_dir}")
-            return
+            raise FileNotFoundError(f"Diretório de modelos não existe: {model_dir}")
         
         # Tentar carregar modelo ONNX para melhor compatibilidade
         onnx_path = model_dir / "rvc_model.onnx"
@@ -370,7 +374,8 @@ class RVCService:
             except Exception as e:
                 logger.warning(f"Falha ao carregar índice FAISS: {e}")
         
-        logger.info("RVC inicializado (modo mock - modelos não encontrados)")
+        if self.model is None:
+            raise FileNotFoundError(f"Modelos RVC não encontrados em: {model_dir}")
     
     async def unload_model(self) -> None:
         """Descarrega modelo da memória."""
@@ -445,11 +450,9 @@ class RVCService:
         if not self.is_loaded:
             await self.load_model()
         
-        # Se modelo não está realmente carregado, usar mock
+        # Se modelo não está realmente carregado, falhar
         if self.model is None:
-            return await self._mock_convert(
-                input_audio_path, pitch_shift, voice_model
-            )
+            raise RuntimeError("Modelo RVC não está carregado")
 
         # Se RVC WebUI estiver configurado, usar inferência real via subprocesso
         if self._rvc_repo_dir and self._rvc_model_path:
@@ -464,9 +467,7 @@ class RVCService:
                 return result
             except Exception as e:
                 logger.error(f"Erro na conversão RVC (WebUI): {e}")
-                return await self._mock_convert(
-                    input_audio_path, pitch_shift, voice_model
-                )
+                raise
         
         try:
             # Executar conversão em thread separada
@@ -485,10 +486,7 @@ class RVCService:
             
         except Exception as e:
             logger.error(f"Erro na conversão RVC: {e}")
-            # Fallback para mock em caso de erro
-            return await self._mock_convert(
-                input_audio_path, pitch_shift, voice_model
-            )
+            raise
     
     def _convert_sync(
         self,
@@ -558,6 +556,8 @@ class RVCService:
         rms_mix_rate: float
     ) -> Dict[str, Any]:
         """Conversão real usando RVC WebUI via subprocesso."""
+        from backend.utils.conda_finder import get_conda_run_command, conda_env_exists
+        
         file_id = str(uuid.uuid4())
         output_dir = Path(settings.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -565,12 +565,21 @@ class RVCService:
 
         script_path = Path(__file__).resolve().parent.parent / "scripts" / "rvc_inference_runner.py"
 
+        if not conda_env_exists(self._rvc_env_name):
+            raise RuntimeError(
+                f"RVC env '{self._rvc_env_name}' não encontrado. "
+                "Ative rvc_auto_setup ou crie o ambiente com requirements-rvc.txt."
+            )
+
+        # Obter comando conda detectado automaticamente
+        conda_cmd = get_conda_run_command(self._rvc_env_name)
+        logger.debug(f"Conda command: {' '.join(conda_cmd[:3])}...")
+        
         # Construir comando base
-        cmd = [
-            "conda",
-            "run",
-            "-n",
-            self._rvc_env_name,
+        # Se não há arquivo de índice, forçar index_rate=0 para evitar erro
+        effective_index_rate = index_rate if self._rvc_index_path else 0.0
+        
+        cmd = conda_cmd + [
             "python",
             str(script_path),
             "--repo-dir",
@@ -586,7 +595,7 @@ class RVCService:
             "--pitch",
             str(pitch_shift),
             "--index-rate",
-            str(index_rate),
+            str(effective_index_rate),
             "--f0method",
             "rmvpe",
             "--device",
@@ -603,11 +612,20 @@ class RVCService:
                 "--rocm-arch", settings.pytorch_rocm_arch
             ])
 
+        # Criar ambiente limpo para o subprocess (evita herdar PYTHONHASHSEED inválido)
+        clean_env = os.environ.copy()
+        # Remover ou corrigir PYTHONHASHSEED que pode causar erro no subprocess
+        if "PYTHONHASHSEED" in clean_env:
+            del clean_env["PYTHONHASHSEED"]
+        
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
-            check=False
+            check=False,
+            env=clean_env,
+            encoding='utf-8',
+            errors='replace'  # Evita UnicodeDecodeError no Windows
         )
 
         if result.returncode != 0:
@@ -619,7 +637,7 @@ class RVCService:
         duration = 0.0
         sample_rate = self.SAMPLE_RATE
 
-        if TORCH_AVAILABLE:
+        if TORCHAUDIO_IO_AVAILABLE:
             try:
                 info = torchaudio.info(str(output_path))
                 duration = info.num_frames / info.sample_rate
@@ -668,7 +686,7 @@ class RVCService:
                 logger.warning(f"librosa falhou: {e}")
         
         # Fallback para torchaudio
-        if TORCH_AVAILABLE:
+        if TORCHAUDIO_IO_AVAILABLE:
             try:
                 waveform, sr = torchaudio.load(path)
                 audio = waveform.mean(dim=0).numpy()  # Converter para mono
@@ -739,9 +757,16 @@ class RVCService:
                 
                 # Garantir sample rate correto para CREPE
                 if sr != 16000:
-                    audio_tensor = torchaudio.functional.resample(
-                        audio_tensor, sr, 16000
-                    )
+                    if torchaudio is not None:
+                        audio_tensor = torchaudio.functional.resample(
+                            audio_tensor, sr, 16000
+                        )
+                    elif NUMPY_AVAILABLE:
+                        num_samples = int(len(audio) * 16000 / sr)
+                        audio_resampled = resample(audio, num_samples)
+                        audio_tensor = torch.from_numpy(audio_resampled).unsqueeze(0)
+                    else:
+                        raise RuntimeError("Resample indisponível sem torchaudio/numpy")
                 
                 # Extrair pitch
                 time, frequency, confidence, activation = torchcrepe.predict(
@@ -990,7 +1015,7 @@ class RVCService:
                 duration = librosa.get_duration(path=input_audio_path)
             except Exception:
                 pass
-        elif TORCH_AVAILABLE:
+        elif TORCHAUDIO_IO_AVAILABLE:
             try:
                 info = torchaudio.info(input_audio_path)
                 duration = info.num_frames / info.sample_rate

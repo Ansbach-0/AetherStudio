@@ -233,11 +233,14 @@ class VoicePipelineRequest(BaseModel):
     Exemplo de uso:
         POST /api/v1/voice/pipeline
         {
-            "text": "Olá, esta é minha voz estilizada!",
+            "text": "Olá, esta é minha voz clonada!",
             "profile_id": 1,
             "emotion": "happy",
-            "apply_rvc": true
+            "apply_rvc": false
         }
+    
+    Nota: RVC só deve ser habilitado se houver um modelo
+    treinado especificamente para a voz do perfil.
     """
     text: str = Field(
         ...,
@@ -278,8 +281,8 @@ class VoicePipelineRequest(BaseModel):
         description="Ajuste de tom em semitons (usa preset de emoção se None)"
     )
     apply_rvc: bool = Field(
-        True,
-        description="Se deve aplicar RVC para estilização"
+        False,
+        description="Se deve aplicar RVC para estilização (requer modelo RVC treinado para a voz específica)"
     )
 
 

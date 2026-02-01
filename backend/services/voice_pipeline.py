@@ -105,7 +105,8 @@ class VoicePipeline:
         text: str,
         reference_audio: str,
         language: Optional[str] = None,
-        speed: float = 1.0
+        speed: float = 1.0,
+        reference_text: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Converte texto em fala usando voz de referência.
@@ -117,6 +118,7 @@ class VoicePipeline:
             reference_audio: Caminho do áudio de referência
             language: Código de idioma (auto-detecta se None)
             speed: Velocidade da fala (0.5-2.0)
+            reference_text: Transcrição do áudio de referência (evita Whisper/TorchCodec)
         
         Returns:
             Dict com audio_url, duration, sample_rate, etc.
@@ -131,7 +133,8 @@ class VoicePipeline:
             text=text,
             reference_audio=reference_audio,
             language=language,
-            speed=speed
+            speed=speed,
+            reference_text=reference_text
         )
         
         result["detected_language"] = language
@@ -180,7 +183,8 @@ class VoicePipeline:
         language: Optional[str] = None,
         speed: Optional[float] = None,
         pitch_shift: Optional[int] = None,
-        apply_rvc: bool = True
+        apply_rvc: bool = True,
+        reference_text: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Gera fala com estilo emocional.
@@ -199,6 +203,7 @@ class VoicePipeline:
             speed: Velocidade (usa preset de emoção se None)
             pitch_shift: Pitch shift (usa preset de emoção se None)
             apply_rvc: Se deve aplicar RVC após TTS
+            reference_text: Transcrição do áudio de referência (evita Whisper/TorchCodec)
         
         Returns:
             Dict com resultado completo do pipeline
@@ -227,7 +232,8 @@ class VoicePipeline:
             text=text,
             reference_audio=reference_audio,
             language=language,
-            speed=actual_speed
+            speed=actual_speed,
+            reference_text=reference_text
         )
         
         # Se não deve aplicar RVC ou não há modelo de estilo

@@ -17,6 +17,60 @@ router = APIRouter(prefix="/health", tags=["Health"])
 settings = get_settings()
 
 
+async def check_dependencies():
+    """
+    Verifica status das dependências críticas.
+    
+    Returns:
+        dict: Status de cada dependência
+    """
+    deps = {}
+    
+    # PyTorch
+    try:
+        import torch
+        deps["torch"] = {"available": True, "version": torch.__version__}
+    except ImportError:
+        deps["torch"] = {"available": False, "version": None}
+    
+    # NumPy
+    try:
+        import numpy as np
+        deps["numpy"] = {"available": True, "version": np.__version__}
+    except ImportError:
+        deps["numpy"] = {"available": False, "version": None}
+    
+    # SciPy
+    try:
+        import scipy
+        deps["scipy"] = {"available": True, "version": scipy.__version__}
+    except ImportError:
+        deps["scipy"] = {"available": False, "version": None}
+    
+    # Librosa
+    try:
+        import librosa
+        deps["librosa"] = {"available": True, "version": librosa.__version__}
+    except ImportError:
+        deps["librosa"] = {"available": False, "version": None}
+    
+    # F5-TTS
+    try:
+        from f5_tts.api import F5TTS
+        deps["f5_tts"] = {"available": True, "version": "installed"}
+    except ImportError:
+        deps["f5_tts"] = {"available": False, "version": None}
+    
+    # Verificar se todas críticas estão disponíveis
+    critical_deps = ["torch", "numpy", "scipy", "librosa", "f5_tts"]
+    all_available = all(deps[dep]["available"] for dep in critical_deps)
+    
+    return {
+        "all_available": all_available,
+        "dependencies": deps
+    }
+
+
 @router.get(
     "",
     response_model=HealthResponse,
@@ -144,6 +198,9 @@ async def readiness_check():
     Returns:
         dict: Status de prontidão com detalhes
     """
+    # Verificar dependências críticas
+    deps_status = await check_dependencies()
+    
     # Obter status dos serviços
     cache_service = get_cache_service()
     task_manager = get_task_manager()
@@ -153,7 +210,8 @@ async def readiness_check():
         "models_loaded": True,  # Placeholder: verificar modelos
         "disk_space": True,   # Placeholder: verificar espaço
         "cache": cache_service.status["memory_cache"]["size"] >= 0,
-        "task_manager": True
+        "task_manager": True,
+        "dependencies": deps_status["all_available"]
     }
     
     all_ready = all(checks.values())
@@ -161,6 +219,7 @@ async def readiness_check():
     return {
         "ready": all_ready,
         "checks": checks,
+        "dependencies": deps_status,
         "cache_stats": cache_service.status,
         "task_stats": task_manager.stats,
         "timestamp": datetime.now(timezone.utc).isoformat()

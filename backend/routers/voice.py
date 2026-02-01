@@ -393,6 +393,7 @@ async def create_profile(
     user_id: int = Query(..., description="ID do usuário"),
     name: str = Form(..., min_length=1, max_length=100),
     description: str = Form(None, max_length=500),
+    reference_text: str = Form(None, max_length=5000, description="Transcrição do áudio de referência para F5-TTS"),
     language: str = Form("pt-BR"),
     is_public: bool = Form(False),
     reference_audio: UploadFile = File(..., description="Áudio de referência"),
@@ -449,6 +450,7 @@ async def create_profile(
         name=name,
         description=description,
         reference_audio_path=audio_path,
+        reference_text=reference_text,  # Transcrição do áudio de referência para F5-TTS
         language=language,
         is_public=is_public
     )
@@ -627,10 +629,12 @@ async def voice_pipeline_endpoint(
     if user.credits < estimated_cost:
         raise InsufficientCreditsError(user.credits, estimated_cost)
     
-    # Resolver referência de áudio
+    # Resolver referência de áudio e texto de referência
+    reference_text = None  # Transcrição do áudio de referência (evita Whisper/TorchCodec)
     if request.profile_id:
         profile = await _get_profile_or_raise(request.profile_id, user_id, db)
         reference_path = profile.reference_audio_path
+        reference_text = profile.reference_text  # Transcrição salva no perfil
         style_model = request.style_model or profile.reference_audio_path
     elif request.reference_audio_url:
         reference_path = request.reference_audio_url
@@ -643,7 +647,8 @@ async def voice_pipeline_endpoint(
     
     logger.info(
         f"Iniciando pipeline de voz para usuário {user_id}: "
-        f"emotion={request.emotion}, apply_rvc={request.apply_rvc}"
+        f"emotion={request.emotion}, apply_rvc={request.apply_rvc}, "
+        f"has_reference_text={reference_text is not None and len(reference_text or '') > 0}"
     )
     
     # Executar pipeline
@@ -655,7 +660,8 @@ async def voice_pipeline_endpoint(
         language=request.language,
         speed=request.speed,
         pitch_shift=request.pitch_shift,
-        apply_rvc=request.apply_rvc
+        apply_rvc=request.apply_rvc,
+        reference_text=reference_text  # Passa transcrição para evitar uso do Whisper
     )
     
     # Calcular custo real

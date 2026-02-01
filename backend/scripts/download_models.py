@@ -24,15 +24,19 @@ ROOT_DIR = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
 try:
-    from huggingface_hub import hf_hub_download, snapshot_download
+    from huggingface_hub import hf_hub_download
     HF_HUB_AVAILABLE = True
 except ImportError:
     HF_HUB_AVAILABLE = False
     print("ERRO: huggingface-hub não está instalado.")
     print("Instale com: pip install huggingface-hub")
 
+from backend.config import get_settings
+
+settings = get_settings()
+
 # Configurações
-MODELS_DIR = ROOT_DIR / "models"
+MODELS_DIR = Path(settings.models_dir)
 F5_TTS_REPO = "SWivid/F5-TTS"
 
 # Arquivos para download
@@ -48,6 +52,7 @@ def create_directories():
         MODELS_DIR,
         MODELS_DIR / "f5-tts",
         MODELS_DIR / "f5-tts" / "F5TTS_Base",
+        Path(settings.hf_home),
     ]
     
     for dir_path in dirs:
@@ -71,6 +76,11 @@ def download_f5_tts():
     print("="*60 + "\n")
     
     output_dir = MODELS_DIR / "f5-tts"
+    hf_cache_dir = Path(settings.hf_home)
+    hf_cache_dir.mkdir(parents=True, exist_ok=True)
+    os.environ.setdefault("HF_HOME", str(hf_cache_dir))
+    os.environ.setdefault("HF_HUB_CACHE", str(hf_cache_dir / "hub"))
+    os.environ.setdefault("TRANSFORMERS_CACHE", str(hf_cache_dir / "transformers"))
     
     try:
         for filename in F5_TTS_FILES:
@@ -80,6 +90,7 @@ def download_f5_tts():
                     repo_id=F5_TTS_REPO,
                     filename=filename,
                     local_dir=output_dir,
+                    cache_dir=str(hf_cache_dir),
                     local_dir_use_symlinks=False
                 )
                 print(f"✓ Salvo em: {local_path}")

@@ -122,6 +122,14 @@ import numpy as np
 
 try:
     import torch
+    # WORKAROUND: PyTorch 2.6+ usa weights_only=True por padrão, que quebra fairseq/RVC
+    # Precisamos fazer patch global do torch.load para manter compatibilidade
+    _original_torch_load = torch.load
+    def _patched_torch_load(*args, **kwargs):
+        if 'weights_only' not in kwargs:
+            kwargs['weights_only'] = False
+        return _original_torch_load(*args, **kwargs)
+    torch.load = _patched_torch_load
 except Exception as exc:
     raise RuntimeError("PyTorch é necessário para inferência RVC") from exc
 
@@ -134,6 +142,31 @@ try:
     import soundfile as sf
 except Exception as exc:
     raise RuntimeError("soundfile é necessário para inferência RVC") from exc
+
+
+class DummyQueue:
+    """
+    Queue dummy que não usa multiprocessing.Manager().
+    
+    No Windows com 'conda run', multiprocessing.Manager() causa deadlock.
+    As queues inp_q/opt_q do RVC são usadas APENAS quando:
+    - f0method == "harvest" E n_cpu > 1
+    
+    Para métodos rmvpe/crepe/fcpe/pm ou harvest com n_cpu=1, as queues não são usadas.
+    Esta classe permite inicializar o RVC sem Manager e lança erro se alguém
+    tentar usar harvest com múltiplos CPUs.
+    """
+    def put(self, item):
+        raise RuntimeError(
+            "Multiprocessing queues not supported on Windows. "
+            "Use f0method=rmvpe/crepe/fcpe/pm, or set threads=1 for harvest."
+        )
+    
+    def get(self):
+        raise RuntimeError(
+            "Multiprocessing queues not supported on Windows. "
+            "Use f0method=rmvpe/crepe/fcpe/pm, or set threads=1 for harvest."
+        )
 
 
 @contextlib.contextmanager
@@ -181,9 +214,29 @@ def main() -> int:
     if str(repo_dir) not in sys.path:
         sys.path.insert(0, str(repo_dir))
 
+    # MONKEYPATCH: Substituir multiprocessing.Manager por DummyManager
+    # O rvc_for_realtime.py cria um Manager global (mm = M()) que trava no Windows
+    import multiprocessing
+    
+    class DummyManager:
+        """Manager falso que não cria processo servidor."""
+        def Queue(self):
+            return DummyQueue()
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+    
+    # Guardar original e substituir
+    _original_manager = multiprocessing.Manager
+    multiprocessing.Manager = DummyManager
+
     # Importar módulos do RVC (sys.argv já foi limpo acima)
     from configs.config import Config
     from tools.rvc_for_realtime import RVC
+    
+    # Restaurar Manager original (caso algo precise depois)
+    multiprocessing.Manager = _original_manager
 
     # Criar config do RVC com diretório correto
     with temp_cwd(repo_dir):
@@ -208,11 +261,10 @@ def main() -> int:
     audio_tensor = torch.from_numpy(audio).to(config.device)
 
     # Instanciar RVC
-    from multiprocessing import Manager
-
-    manager = Manager()
-    inp_q = manager.Queue()
-    opt_q = manager.Queue()
+    # NOTA: Não usar multiprocessing.Manager() no Windows - causa deadlock com 'conda run'.
+    # DummyQueue funciona porque rmvpe/crepe/fcpe/pm não usam as queues.
+    inp_q = DummyQueue()
+    opt_q = DummyQueue()
 
     print(f"[RVC Infer] Inicializando modelo RVC...", file=sys.stderr)
     with temp_cwd(repo_dir):

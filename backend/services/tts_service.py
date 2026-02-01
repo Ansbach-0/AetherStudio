@@ -11,9 +11,18 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-# Configurar variáveis de ambiente ROCm ANTES de importar torch
+# Configurar variáveis de ambiente ANTES de importar torch e transformers
 from backend.config import get_settings
 _settings = get_settings()
+
+# Configurar HuggingFace cache para evitar re-download de modelos
+# DEVE ser feito antes de importar transformers/torch
+hf_cache_path = Path(_settings.hf_home).resolve()
+hf_cache_path.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault("HF_HOME", str(hf_cache_path))
+os.environ.setdefault("HF_HUB_CACHE", str(hf_cache_path / "hub"))
+os.environ.setdefault("TRANSFORMERS_CACHE", str(hf_cache_path / "transformers"))
+
 if _settings.use_rocm:
     os.environ["HSA_OVERRIDE_GFX_VERSION"] = _settings.hsa_override_gfx_version
     os.environ["ROCR_VISIBLE_DEVICES"] = _settings.rocm_visible_devices
@@ -25,12 +34,58 @@ from backend.utils.logger import get_logger
 # Import PyTorch condicionalmente
 try:
     import torch
-    import torchaudio
     TORCH_AVAILABLE = True
+    
+    # IMPORTANTE: Monkey-patch do torchaudio.load para evitar torchcodec
+    # O torchaudio 2.10+ usa torchcodec por padrão, que não está disponível no Windows/CPU
+    # Forçamos o uso do backend soundfile que funciona universalmente
+    try:
+        import torchaudio
+        import soundfile as sf
+        
+        # Guarda a função original
+        _original_torchaudio_load = torchaudio.load
+        
+        def _patched_torchaudio_load(filepath, *args, **kwargs):
+            """
+            Wrapper que força uso do soundfile para carregar áudio.
+            Evita erro do torchcodec no Windows/CPU.
+            """
+            try:
+                # Tenta usar soundfile diretamente (mais confiável)
+                data, sample_rate = sf.read(filepath, dtype='float32')
+                # Converte para tensor PyTorch no formato esperado (channels, samples)
+                if len(data.shape) == 1:
+                    # Mono: adiciona dimensão de canal
+                    waveform = torch.from_numpy(data).unsqueeze(0)
+                else:
+                    # Stereo/Multi-channel: transpõe para (channels, samples)
+                    waveform = torch.from_numpy(data.T)
+                return waveform, sample_rate
+            except Exception:
+                # Fallback para função original se soundfile falhar
+                return _original_torchaudio_load(filepath, *args, **kwargs)
+        
+        # Aplica o monkey-patch
+        torchaudio.load = _patched_torchaudio_load
+        _TORCHAUDIO_PATCHED = True
+        
+    except ImportError:
+        _TORCHAUDIO_PATCHED = False
 except ImportError:
     TORCH_AVAILABLE = False
     torch = None
-    torchaudio = None
+    _TORCHAUDIO_PATCHED = False
+
+# Import scipy para salvar áudio (evita torchcodec do torchaudio)
+try:
+    import numpy as np
+    from scipy.io import wavfile as scipy_wavfile
+    SCIPY_AVAILABLE = True
+except ImportError:
+    SCIPY_AVAILABLE = False
+    np = None
+    scipy_wavfile = None
 
 # Tentar importar DirectML se disponível
 try:
@@ -40,36 +95,37 @@ except ImportError:
     DIRECTML_AVAILABLE = False
     torch_directml = None
 
-# Import F5-TTS modules condicionalmente para evitar erros se não instalado
+# Import F5-TTS API simplificada condicionalmente
 try:
-    from f5_tts.model import DiT
-    from f5_tts.infer.utils_infer import (
-        load_vocoder,
-        load_model,
-        infer_process,
-        preprocess_ref_audio_text
-    )
+    from f5_tts.api import F5TTS
     F5_TTS_AVAILABLE = True
 except ImportError:
     F5_TTS_AVAILABLE = False
+    F5TTS = None
 
 logger = get_logger(__name__)
 settings = get_settings()
+
+# Log do status do monkey-patch do torchaudio
+if TORCH_AVAILABLE and _TORCHAUDIO_PATCHED:
+    logger.info("Monkey-patch do torchaudio.load aplicado com sucesso (usando soundfile)")
+elif TORCH_AVAILABLE:
+    logger.warning("Não foi possível aplicar monkey-patch do torchaudio - pode haver erros com torchcodec")
 
 
 class TTSService:
     """
     Serviço de Text-to-Speech usando F5-TTS.
     
-    Implementação real de voice cloning com suporte a:
-    - Clonagem zero-shot (6+ segundos de referência)
+    Implementação usando a API simplificada do F5-TTS que:
+    - Carrega modelo e vocoder automaticamente
+    - Suporta clonagem zero-shot (6+ segundos de referência)
     - Múltiplos idiomas (PT, EN, ES)
     - Controle de velocidade
-    - Batch processing
     
     Attributes:
-        model: Modelo F5-TTS carregado
-        vocoder: Vocoder para síntese de áudio
+        f5tts: Instância da API simplificada F5TTS
+        model: Alias para f5tts (compatibilidade)
         device: Dispositivo (cuda/cpu)
         is_loaded: Status do modelo
     """
@@ -82,10 +138,9 @@ class TTSService:
     
     def __init__(self):
         """Inicializa o serviço TTS."""
-        self.model = None
-        self.vocoder = None
+        self.f5tts = None  # Instância da API simplificada
+        self.model = None  # Alias para compatibilidade
         self.device = self._get_device()
-        self._model_device = self.device  # Device real usado pelo modelo F5-TTS
         self.is_loaded = False
         
         logger.info(f"TTSService inicializado (device: {self.device})")
@@ -136,9 +191,12 @@ class TTSService:
             return True
         
         if not F5_TTS_AVAILABLE or not TORCH_AVAILABLE:
-            logger.warning("F5-TTS ou PyTorch não instalado. Usando modo mock.")
-            self.is_loaded = True  # Permite operar em modo mock
-            return True
+            error_msg = (
+                "F5-TTS ou PyTorch não instalado. "
+                f"F5_TTS_AVAILABLE={F5_TTS_AVAILABLE}, TORCH_AVAILABLE={TORCH_AVAILABLE}"
+            )
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
         
         try:
             logger.info("Carregando modelo F5-TTS...")
@@ -150,48 +208,36 @@ class TTSService:
             
         except Exception as e:
             logger.error(f"Erro ao carregar F5-TTS: {e}")
-            logger.warning("Operando em modo mock.")
-            self.is_loaded = True
-            return True
+            raise
     
     def _load_model_sync(self) -> None:
-        """Carregamento síncrono do modelo (executado em thread)."""
-        base_dir = Path(settings.models_dir) / "f5-tts" / "F5TTS_Base"
-        pt_ckpt = base_dir / "model_1200000.pt"
-        st_ckpt = base_dir / "model_1200000.safetensors"
-        ckpt_path = str(pt_ckpt) if pt_ckpt.exists() else (str(st_ckpt) if st_ckpt.exists() else "")
-        vocab_path = str(base_dir / "vocab.txt")
+        """
+        Carregamento síncrono do modelo usando API simplificada F5TTS.
         
-        # F5-TTS não suporta DirectML nativamente - usar CPU para carregamento
-        # e converter para device alvo depois se necessário
+        A API simplificada carrega modelo e vocoder automaticamente.
+        """
+        # Determinar device para o modelo
         model_device = self.device
         if self.device.startswith("privateuseone"):
+            # F5-TTS não suporta DirectML nativamente
             logger.info("F5-TTS não suporta DirectML, usando CPU para modelo")
             model_device = "cpu"
         
-        self.model = load_model(
-            model_cls=DiT,
-            model_cfg=dict(dim=1024, depth=22, heads=16, ff_mult=2, text_dim=512, conv_layers=4),
-            ckpt_path=ckpt_path,
-            mel_spec_type="vocos",
-            vocab_file=vocab_path if Path(vocab_path).exists() else "",
-            device=model_device
-        )
+        # Criar instância da API simplificada
+        # O modelo e vocoder são carregados automaticamente
+        self.f5tts = F5TTS(device=model_device)
         
-        # Armazenar device real do modelo para inferência
-        self._model_device = model_device
+        # Alias para compatibilidade com código existente (ex: voice_pipeline)
+        self.model = self.f5tts
         
-        self.vocoder = load_vocoder(is_local=False, local_path="", device=model_device)
+        logger.info(f"F5TTS API carregada no device: {model_device}")
     
     async def unload_model(self) -> None:
         """Descarrega modelo para liberar memória."""
-        if self.model is not None:
-            del self.model
-            self.model = None
-        
-        if self.vocoder is not None:
-            del self.vocoder
-            self.vocoder = None
+        if self.f5tts is not None:
+            del self.f5tts
+            self.f5tts = None
+            self.model = None  # Limpar alias também
         
         # Forçar garbage collection antes de limpar cache GPU
         import gc
@@ -208,7 +254,8 @@ class TTSService:
         text: str,
         reference_audio: str,
         language: str = "pt-BR",
-        speed: float = 1.0
+        speed: float = 1.0,
+        reference_text: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Sintetiza texto com voz clonada.
@@ -218,6 +265,7 @@ class TTSService:
             reference_audio: Caminho do áudio de referência
             language: Código do idioma
             speed: Velocidade da fala (0.5-2.0)
+            reference_text: Transcrição do áudio de referência (se None, usa fallback)
         
         Returns:
             Dict com audio_url, duration, sample_rate
@@ -231,9 +279,11 @@ class TTSService:
         output_dir.mkdir(parents=True, exist_ok=True)
         output_path = output_dir / f"{file_id}.wav"
         
-        # Se modelo não está disponível, usar mock
+        # Se modelo não está disponível, lançar erro
         if self.model is None or not F5_TTS_AVAILABLE or not TORCH_AVAILABLE:
-            return await self._mock_synthesize(text, output_path, speed)
+            error_msg = f"Modelo TTS não disponível: model={self.model is not None}, F5_TTS={F5_TTS_AVAILABLE}, TORCH={TORCH_AVAILABLE}"
+            logger.error(error_msg)
+            raise Exception(error_msg)
         
         try:
             # Executar síntese em thread separada (operação bloqueante)
@@ -242,7 +292,8 @@ class TTSService:
                 text,
                 reference_audio,
                 str(output_path),
-                speed
+                speed,
+                reference_text
             )
             
             return {
@@ -253,61 +304,96 @@ class TTSService:
             }
             
         except Exception as e:
+            import traceback
             logger.error(f"Erro na síntese: {e}")
-            return await self._mock_synthesize(text, output_path, speed)
+            logger.error(f"Traceback completo:\n{traceback.format_exc()}")
+            raise
     
     def _synthesize_sync(
         self,
         text: str,
         reference_audio: str,
         output_path: str,
-        speed: float
+        speed: float,
+        reference_text: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Síntese síncrona (executada em thread pool).
+        Síntese síncrona usando API simplificada F5TTS.
         
         Args:
-            text: Texto para sintetizar
-            reference_audio: Caminho do áudio de referência
-            output_path: Caminho de saída
-            speed: Velocidade
+            text: Texto para sintetizar (gen_text)
+            reference_audio: Caminho do áudio de referência (ref_file)
+            output_path: Caminho de saída (file_wave)
+            speed: Velocidade da fala
+            reference_text: Transcrição do áudio de referência (ref_text)
         
         Returns:
             Dict com informações do áudio gerado
         """
-        # Processar áudio de referência (não aceita device)
-        ref_audio, ref_text = preprocess_ref_audio_text(
-            reference_audio,
-            ""  # Transcrição vazia = auto-detectar
-        )
+        # IMPORTANTE: F5-TTS usa Whisper automaticamente se ref_text for vazio
+        # Whisper requer TorchCodec que tem problemas no Windows
+        # Usamos uma frase padrão como fallback para EVITAR a transcrição automática
+        DEFAULT_REF_TEXT = "Audio reference sample."
+        ref_text_input = reference_text.strip() if reference_text and reference_text.strip() else DEFAULT_REF_TEXT
         
-        # Executar inferência (usar _model_device para F5-TTS)
-        generated_audio, final_sample_rate, _ = infer_process(
-            ref_audio,
-            ref_text,
-            text,
-            self.model,
-            self.vocoder,
-            mel_spec_type="vocos",
-            speed=speed,
-            device=self._model_device
-        )
-        
-        # Salvar áudio
-        torchaudio.save(
-            output_path,
-            torch.tensor(generated_audio).unsqueeze(0),
-            final_sample_rate
-        )
-        
-        duration = len(generated_audio) / final_sample_rate
-        
-        logger.info(f"Síntese concluída: {duration:.2f}s, {output_path}")
-        
-        return {
-            "duration": duration,
-            "sample_rate": final_sample_rate
-        }
+        # Usar API simplificada do F5-TTS
+        # Retorna: (wav_array, sample_rate, spectrogram)
+        try:
+            wav, sr, _ = self.f5tts.infer(
+                ref_file=reference_audio,
+                ref_text=ref_text_input,
+                gen_text=text,
+                file_wave=output_path,  # Salva automaticamente
+                speed=speed,
+                seed=None,  # Geração aleatória
+            )
+            
+            # Calcular duração do áudio gerado
+            duration = len(wav) / sr
+            logger.info(f"Síntese concluída: {duration:.2f}s, {output_path}")
+            
+            return {
+                "duration": duration,
+                "sample_rate": sr
+            }
+            
+        except Exception as e:
+            # Se file_wave falhar, tentar salvar manualmente como backup
+            logger.warning(f"Erro no file_wave automático, tentando backup: {e}")
+            
+            wav, sr, _ = self.f5tts.infer(
+                ref_file=reference_audio,
+                ref_text=ref_text_input,
+                gen_text=text,
+                file_wave=None,  # Não salvar automaticamente
+                speed=speed,
+                seed=None,
+            )
+            
+            # Salvar áudio usando scipy (evita torchcodec do torchaudio)
+            if SCIPY_AVAILABLE:
+                # Converter para int16 para WAV
+                audio_np = np.array(wav)
+                # Normalizar para range int16
+                audio_int16 = (audio_np * 32767).astype(np.int16)
+                scipy_wavfile.write(output_path, sr, audio_int16)
+            else:
+                # Fallback para wave module (stdlib)
+                import wave
+                audio_list = [int(s * 32767) for s in wav]
+                with wave.open(output_path, 'w') as wav_file:
+                    wav_file.setnchannels(1)
+                    wav_file.setsampwidth(2)  # 16-bit
+                    wav_file.setframerate(sr)
+                    wav_file.writeframes(bytes(b''.join(s.to_bytes(2, 'little', signed=True) for s in audio_list)))
+            
+            duration = len(wav) / sr
+            logger.info(f"Síntese concluída (backup): {duration:.2f}s, {output_path}")
+            
+            return {
+                "duration": duration,
+                "sample_rate": sr
+            }
     
     async def _mock_synthesize(
         self,
@@ -326,10 +412,10 @@ class TTSService:
         duration = max(1.0, min(duration, 300.0))
         
         # Criar áudio silencioso (para testes)
-        if TORCH_AVAILABLE:
+        if SCIPY_AVAILABLE:
             samples = int(duration * self.SAMPLE_RATE)
-            silence = torch.zeros(1, samples)
-            torchaudio.save(str(output_path), silence, self.SAMPLE_RATE)
+            silence = np.zeros(samples, dtype=np.int16)
+            scipy_wavfile.write(str(output_path), self.SAMPLE_RATE, silence)
         else:
             # Fallback: criar arquivo WAV vazio usando wave (stdlib)
             import wave
@@ -366,12 +452,13 @@ class TTSService:
         """Retorna status do serviço."""
         return {
             "loaded": self.is_loaded,
-            "model": self.model,  # Required by voice_pipeline
-            "model_available": self.model is not None,
-            "mock_mode": self.model is None,  # Required by voice_pipeline
+            "model": self.model,  # Alias para f5tts (compatibilidade com voice_pipeline)
+            "f5tts": self.f5tts,  # Instância real da API
+            "model_available": self.f5tts is not None,
+            "mock_mode": self.f5tts is None,  # Indica se está em modo mock
             "torch_available": TORCH_AVAILABLE,
             "f5_tts_installed": F5_TTS_AVAILABLE,
             "device": self.device,
-            "model_type": "F5-TTS",
+            "model_type": "F5-TTS (API simplificada)",
             "sample_rate": self.SAMPLE_RATE
         }

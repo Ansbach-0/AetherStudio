@@ -31,7 +31,8 @@ class VoiceCloneException(Exception):
         self.message = message
         self.code = code
         self.details = details or {}
-        super().__init__(self.message)
+        # Chamada explícita a Exception para evitar conflito com HTTPException
+        Exception.__init__(self, self.message)
     
     def to_dict(self) -> dict[str, Any]:
         """Converte exceção para dicionário."""
