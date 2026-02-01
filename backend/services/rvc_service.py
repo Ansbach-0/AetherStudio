@@ -162,6 +162,7 @@ class RVCService:
         self.hubert_model = None
         self.device = self._get_device()
         self.is_loaded = False
+        self.models_available = False  # Flag para indicar se modelos existem
         self._model_path = None
         self._rvc_repo_dir = None
         self._rvc_env_name = settings.rvc_env_name
@@ -289,7 +290,10 @@ class RVCService:
             await asyncio.to_thread(self._load_model_sync)
             
             self.is_loaded = True
-            logger.info(f"RVC carregado com sucesso (device: {self.device})")
+            if self.models_available:
+                logger.info(f"RVC carregado com sucesso (device: {self.device})")
+            else:
+                logger.info("RVC em modo pass-through (sem modelos de voz disponíveis)")
             return True
             
         except Exception as e:
@@ -321,7 +325,10 @@ class RVCService:
         
         # Verificar se existem modelos
         if not model_dir.exists():
-            raise FileNotFoundError(f"Diretório de modelos não existe: {model_dir}")
+            logger.warning(f"Diretório de modelos não existe: {model_dir}. Criando e usando modo pass-through.")
+            model_dir.mkdir(parents=True, exist_ok=True)
+            self.models_available = False
+            return
         
         # Tentar carregar modelo ONNX para melhor compatibilidade
         onnx_path = model_dir / "rvc_model.onnx"
@@ -350,9 +357,14 @@ class RVCService:
         
         # Tentar carregar modelo PyTorch
         pth_files = list(model_dir.glob("*.pth"))
-        if TORCH_AVAILABLE and pth_files:
+        
+        # Filtrar modelos base que não são modelos de voz
+        base_models = {'hubert_base.pt', 'rmvpe.pt', 'rmvpe.onnx'}
+        voice_model_files = [f for f in pth_files if f.name not in base_models]
+        
+        if TORCH_AVAILABLE and voice_model_files:
             try:
-                model_file = pth_files[0]
+                model_file = voice_model_files[0]
                 checkpoint = torch.load(model_file, map_location=self.device)
                 
                 # Armazenar configuração do modelo
@@ -375,7 +387,11 @@ class RVCService:
                 logger.warning(f"Falha ao carregar índice FAISS: {e}")
         
         if self.model is None:
-            raise FileNotFoundError(f"Modelos RVC não encontrados em: {model_dir}")
+            logger.warning(f"Nenhum modelo RVC encontrado em {model_dir}. RVC funcionará em modo pass-through.")
+            self.models_available = False
+            return
+        
+        self.models_available = True
     
     async def unload_model(self) -> None:
         """Descarrega modelo da memória."""
@@ -450,9 +466,10 @@ class RVCService:
         if not self.is_loaded:
             await self.load_model()
         
-        # Se modelo não está realmente carregado, falhar
-        if self.model is None:
-            raise RuntimeError("Modelo RVC não está carregado")
+        # Se não há modelos disponíveis, usar modo pass-through (copiar áudio original)
+        if not self.models_available or self.model is None:
+            logger.info("RVC em modo pass-through: copiando áudio original sem conversão")
+            return await self._passthrough_audio(input_audio_path)
 
         # Se RVC WebUI estiver configurado, usar inferência real via subprocesso
         if self._rvc_repo_dir and self._rvc_model_path:
@@ -487,6 +504,58 @@ class RVCService:
         except Exception as e:
             logger.error(f"Erro na conversão RVC: {e}")
             raise
+    
+    async def _passthrough_audio(self, input_audio_path: str) -> Dict[str, Any]:
+        """
+        Modo pass-through: copia o áudio original sem conversão.
+        
+        Usado quando não há modelos RVC disponíveis.
+        """
+        import shutil
+        from pathlib import Path
+        
+        input_path = Path(input_audio_path)
+        output_id = str(uuid.uuid4())
+        output_path = Path(settings.output_dir) / f"{output_id}.wav"
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Copiar o arquivo
+        shutil.copy2(input_path, output_path)
+        
+        # Obter duração do áudio
+        duration = 0.0
+        sample_rate = 16000
+        
+        try:
+            if NUMPY_AVAILABLE:
+                sr, audio_data = wavfile.read(str(output_path))
+                sample_rate = sr
+                duration = len(audio_data) / sr
+            elif LIBROSA_AVAILABLE:
+                audio_data, sr = librosa.load(str(output_path), sr=None)
+                sample_rate = sr
+                duration = len(audio_data) / sr
+            else:
+                # Fallback: tentar wave module
+                with wave.open(str(output_path), 'rb') as wf:
+                    sample_rate = wf.getframerate()
+                    frames = wf.getnframes()
+                    duration = frames / sample_rate
+        except Exception as e:
+            logger.warning(f"Não foi possível obter duração do áudio: {e}")
+            duration = 1.0  # Fallback
+        
+        audio_url = f"/outputs/{output_id}.wav"
+        logger.info(f"Pass-through concluído: {audio_url} ({duration:.2f}s)")
+        
+        return {
+            "audio_url": audio_url,
+            "duration": duration,
+            "sample_rate": sample_rate,
+            "pitch_shift_applied": 0,
+            "passthrough": True,
+            "mock": False
+        }
     
     def _convert_sync(
         self,

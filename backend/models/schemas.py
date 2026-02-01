@@ -134,6 +134,7 @@ class VoiceProfileResponse(VoiceProfileBase):
     
     id: int = Field(..., description="ID único do perfil")
     user_id: int = Field(..., description="ID do usuário proprietário")
+    reference_audio_url: Optional[str] = Field(None, description="URL do áudio de referência")
     reference_text: Optional[str] = Field(None, description="Transcrição do áudio de referência")
     color: Optional[str] = Field(None, description="Cor hexadecimal para avatar/UI")
     tags: Optional[str] = Field(None, description="Tags de estilo separadas por vírgula")

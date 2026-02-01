@@ -1185,6 +1185,9 @@ const DashboardArea = ({ theme, onLogout }) => {
   const [activeTab, setActiveTab] = useState('library');
   const [selectedVoice, setSelectedVoice] = useState(null);
 
+  // API base URL for audio files
+  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
   // Transform API profiles to display format
   const voices = voiceProfiles.profiles.map(profile => ({
     id: profile.id,
@@ -1194,7 +1197,7 @@ const DashboardArea = ({ theme, onLogout }) => {
     tags: profile.tags || '',
     color: profile.color || '#7c3aed',
     refText: profile.reference_text || '',
-    referenceAudio: profile.reference_audio_url,
+    referenceAudio: profile.reference_audio_url ? `${API_BASE_URL}${profile.reference_audio_url}` : null,
     description: profile.description,
   }));
 

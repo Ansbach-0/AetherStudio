@@ -62,6 +62,40 @@ voice_pipeline = VoicePipeline(tts_service, rvc_service)
 language_detector = get_language_detector()
 
 
+def _profile_to_response(profile: VoiceProfile) -> VoiceProfileResponse:
+    """
+    Converte uma entidade VoiceProfile para VoiceProfileResponse.
+    
+    Transforma o caminho do arquivo de áudio em uma URL acessível.
+    
+    Args:
+        profile: Entidade VoiceProfile do banco de dados
+    
+    Returns:
+        VoiceProfileResponse: Schema de resposta com reference_audio_url
+    """
+    # Converter o caminho do arquivo para URL
+    audio_url = None
+    if profile.reference_audio_path:
+        # Caminho salvo: ./uploads/profiles/{user_id}/{file_id}.wav
+        # URL: /uploads/profiles/{user_id}/{file_id}.wav
+        audio_url = profile.reference_audio_path.replace("./", "/").replace("\\", "/")
+    
+    return VoiceProfileResponse(
+        id=profile.id,
+        user_id=profile.user_id,
+        name=profile.name,
+        description=profile.description,
+        language=profile.language,
+        reference_audio_url=audio_url,
+        reference_text=profile.reference_text,
+        color=profile.color,
+        tags=profile.tags,
+        is_public=profile.is_public,
+        created_at=profile.created_at,
+    )
+
+
 @router.post(
     "/clone",
     response_model=VoiceCloneResponse,
@@ -379,7 +413,7 @@ async def list_profiles(
         public_result = await db.execute(public_query)
         profiles.extend(public_result.scalars().all())
     
-    return [VoiceProfileResponse.model_validate(p) for p in profiles]
+    return [_profile_to_response(p) for p in profiles]
 
 
 @router.post(
@@ -469,7 +503,7 @@ async def create_profile(
     
     logger.info(f"Perfil de voz criado: {name} (ID: {new_profile.id}) para usuário {user_id}")
     
-    return VoiceProfileResponse.model_validate(new_profile)
+    return _profile_to_response(new_profile)
 
 
 @router.get(
@@ -495,7 +529,7 @@ async def get_profile(
         VoiceProfileResponse: Dados do perfil
     """
     profile = await _get_profile_or_raise(profile_id, user_id, db)
-    return VoiceProfileResponse.model_validate(profile)
+    return _profile_to_response(profile)
 
 
 @router.patch(
@@ -545,7 +579,7 @@ async def update_profile(
     
     logger.info(f"Perfil de voz atualizado: {profile.name} (ID: {profile_id}) - campos: {list(update_dict.keys())}")
     
-    return VoiceProfileResponse.model_validate(profile)
+    return _profile_to_response(profile)
 
 
 @router.delete(
