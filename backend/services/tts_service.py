@@ -103,6 +103,9 @@ except ImportError:
     F5_TTS_AVAILABLE = False
     F5TTS = None
 
+# Import serviço de transcrição
+from backend.services.transcription_service import get_transcription_service, WHISPER_AVAILABLE
+
 logger = get_logger(__name__)
 settings = get_settings()
 
@@ -293,7 +296,8 @@ class TTSService:
                 reference_audio,
                 str(output_path),
                 speed,
-                reference_text
+                reference_text,
+                language  # Passa idioma para ajudar na transcrição automática
             )
             
             return {
@@ -315,7 +319,8 @@ class TTSService:
         reference_audio: str,
         output_path: str,
         speed: float,
-        reference_text: Optional[str] = None
+        reference_text: Optional[str] = None,
+        language: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Síntese síncrona usando API simplificada F5TTS.
@@ -326,15 +331,49 @@ class TTSService:
             output_path: Caminho de saída (file_wave)
             speed: Velocidade da fala
             reference_text: Transcrição do áudio de referência (ref_text)
+            language: Idioma para transcrição automática
         
         Returns:
             Dict com informações do áudio gerado
         """
-        # IMPORTANTE: F5-TTS usa Whisper automaticamente se ref_text for vazio
-        # Whisper requer TorchCodec que tem problemas no Windows
-        # Usamos uma frase padrão como fallback para EVITAR a transcrição automática
-        DEFAULT_REF_TEXT = "Audio reference sample."
-        ref_text_input = reference_text.strip() if reference_text and reference_text.strip() else DEFAULT_REF_TEXT
+        # IMPORTANTE: F5-TTS REQUER que ref_text corresponda exatamente ao áudio
+        # Se não fornecido, usamos Whisper para transcrever automaticamente
+        ref_text_input = None
+        
+        if reference_text and reference_text.strip():
+            ref_text_input = reference_text.strip()
+            logger.info(f"Usando reference_text fornecido: {ref_text_input[:50]}...")
+        else:
+            # Tentar transcrição automática com Whisper
+            if WHISPER_AVAILABLE:
+                try:
+                    import asyncio
+                    transcription_service = get_transcription_service()
+                    # Executar transcrição de forma síncrona
+                    loop = asyncio.new_event_loop()
+                    try:
+                        ref_text_input = loop.run_until_complete(
+                            transcription_service.transcribe(reference_audio, language)
+                        )
+                    finally:
+                        loop.close()
+                    
+                    if ref_text_input:
+                        logger.info(f"Transcrição automática: {ref_text_input[:50]}...")
+                    else:
+                        logger.warning("Transcrição automática retornou vazio")
+                except Exception as e:
+                    logger.warning(f"Erro na transcrição automática: {e}")
+            
+            # Fallback se transcrição falhar
+            if not ref_text_input:
+                # Usar texto genérico como último recurso
+                # AVISO: Isso pode resultar em áudio de baixa qualidade
+                ref_text_input = "Sample audio for voice cloning reference."
+                logger.warning(
+                    "AVISO: Usando texto genérico como fallback. "
+                    "Para melhor qualidade, forneça a transcrição do áudio de referência!"
+                )
         
         # Usar API simplificada do F5-TTS
         # Retorna: (wav_array, sample_rate, spectrogram)

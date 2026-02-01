@@ -52,6 +52,9 @@ onnxruntime>=1.16.0
 # Language Detection
 langdetect>=1.0.9
 
+# Audio Transcription (required for F5-TTS reference text)
+openai-whisper>=20231117
+
 # Computação Numérica
 numpy>=1.24.0
 scipy>=1.10.0
